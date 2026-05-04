@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fondos Management</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2317201d'/%3E%3Ctext x='32' y='40' font-size='24' text-anchor='middle' fill='%23ffffff' font-family='Arial,sans-serif' font-weight='700'%3EFM%3C/text%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js" defer></script>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">FM</div>
+          <div>
+            <strong>Fondos</strong>
+            <span>Management</span>
+          </div>
+        </div>
+        <nav class="nav-list" aria-label="Secciones">
+          <button class="nav-item active" data-section="dashboard">
+            <i data-lucide="layout-dashboard"></i>
+            Dashboard
+          </button>
+          <button class="nav-item" data-section="kpis">
+            <i data-lucide="gauge"></i>
+            KPIs
+          </button>
+          <button class="nav-item" data-section="holdings">
+            <i data-lucide="wallet-cards"></i>
+            Tenencias
+          </button>
+          <button class="nav-item" data-section="masters">
+            <i data-lucide="database"></i>
+            Maestros
+          </button>
+        </nav>
+        <div class="sidebar-note">
+          <span>Persistencia local</span>
+          <strong>Los datos quedan guardados en este navegador.</strong>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Cartera global</p>
+            <h1>Administración de fondos e instrumentos</h1>
+          </div>
+          <div class="topbar-actions">
+            <input id="importDataInput" type="file" accept="application/json,.json" hidden />
+            <button class="ghost-button" id="importDataButton" type="button">
+              <i data-lucide="upload"></i>
+              Importar
+            </button>
+            <button class="primary-button" id="exportDataButton" type="button">
+              <i data-lucide="download"></i>
+              Exportar
+            </button>
+            <button class="ghost-button" id="resetDataButton" type="button" title="Restaurar datos de ejemplo">
+              <i data-lucide="refresh-cw"></i>
+            </button>
+          </div>
+        </header>
+
+        <section class="kpi-band" aria-label="Resumen de cartera">
+          <div class="kpi primary">
+            <span>Tenencia global estimada</span>
+            <strong id="globalTotal">$0</strong>
+            <small id="globalTotalMeta">Calculada en USD</small>
+          </div>
+          <div class="kpi">
+            <span>Instrumentos</span>
+            <strong id="instrumentCount">0</strong>
+            <small>Activos registrados</small>
+          </div>
+          <div class="kpi">
+            <span>Tenencias</span>
+            <strong id="holdingCount">0</strong>
+            <small>Posiciones cargadas</small>
+          </div>
+          <div class="kpi config-kpi">
+            <label for="arsUsdInput">PESOS/DOLARES</label>
+            <div class="inline-input">
+              <span>$</span>
+              <input id="arsUsdInput" inputmode="decimal" type="number" min="1" step="0.01" />
+            </div>
+            <small>Usado para convertir PESOS a USD</small>
+          </div>
+        </section>
+
+        <section class="section active" id="dashboardSection">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Visualización</p>
+              <h2>Distribución de cartera</h2>
+            </div>
+          </div>
+          <div class="chart-grid" id="chartGrid"></div>
+        </section>
+
+        <section class="section" id="kpisSection">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Indicators</p>
+              <h2>KPIs</h2>
+            </div>
+          </div>
+          <div class="kpi-layout">
+            <article class="master-panel retirement-panel">
+              <div class="panel-title">
+                <h3>Estimated Retirement Salary</h3>
+              </div>
+              <div class="retirement-result">
+                <span>Salario mensual estimado</span>
+                <strong id="retirementSalaryValue">$0</strong>
+                <small id="retirementSalaryMeta">Regla anual</small>
+              </div>
+              <div class="form-grid compact-form">
+                <label>
+                  Fondo
+                  <select id="retirementFundInput"></select>
+                </label>
+                <label>
+                  Porcentaje anual
+                  <input id="retirementPercentInput" type="number" min="0" step="0.01" />
+                </label>
+              </div>
+            </article>
+
+            <article class="master-panel">
+              <div class="panel-title">
+                <h3>Configuración de indicadores</h3>
+                <button class="primary-button" id="newIndicatorButton" type="button">
+                  <i data-lucide="plus"></i>
+                  Nuevo indicador
+                </button>
+              </div>
+              <p class="panel-copy">Ordená y ajustá tus indicadores desde cada tarjeta.</p>
+            </article>
+          </div>
+          <div class="indicator-grid" id="indicatorGrid"></div>
+        </section>
+
+        <section class="section" id="holdingsSection">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Operación diaria</p>
+              <h2>Tenencias</h2>
+            </div>
+            <button class="primary-button" id="newHoldingButton" type="button">
+              <i data-lucide="plus"></i>
+              Nueva tenencia
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Instrumento</th>
+                  <th>Plataforma</th>
+                  <th>Tipo</th>
+                  <th>Cantidad</th>
+                  <th>Asignación</th>
+                  <th>Tenencia USD</th>
+                  <th>Pendiente por cobrar</th>
+                  <th>Total estimado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="holdingsTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="section" id="mastersSection">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Configuración</p>
+              <h2>CRUDs globales</h2>
+            </div>
+          </div>
+          <div class="master-grid">
+            <article class="master-panel" data-entity="platforms">
+              <div class="panel-title">
+                <h3>Plataformas</h3>
+                <button class="icon-button add-entity" type="button" title="Agregar plataforma">
+                  <i data-lucide="plus"></i>
+                </button>
+              </div>
+              <div class="entity-list" id="platformsList"></div>
+            </article>
+            <article class="master-panel" data-entity="instrumentTypes">
+              <div class="panel-title">
+                <h3>Tipos de instrumento</h3>
+                <button class="icon-button add-entity" type="button" title="Agregar tipo">
+                  <i data-lucide="plus"></i>
+                </button>
+              </div>
+              <div class="entity-list" id="instrumentTypesList"></div>
+            </article>
+            <article class="master-panel" data-entity="instruments">
+              <div class="panel-title">
+                <h3>Instrumentos</h3>
+                <button class="icon-button add-entity" type="button" title="Agregar instrumento">
+                  <i data-lucide="plus"></i>
+                </button>
+              </div>
+              <div class="entity-list" id="instrumentsList"></div>
+            </article>
+            <article class="master-panel" data-entity="funds">
+              <div class="panel-title">
+                <h3>Fondos</h3>
+                <button class="icon-button add-entity" type="button" title="Agregar fondo">
+                  <i data-lucide="plus"></i>
+                </button>
+              </div>
+              <div class="entity-list" id="fundsList"></div>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="modal" id="entityDialog">
+      <form method="dialog" id="entityForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow" id="entityDialogEyebrow">CRUD</p>
+            <h2 id="entityDialogTitle">Nuevo registro</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <input type="hidden" id="entityIdInput" />
+        <input type="hidden" id="entityKindInput" />
+        <div class="form-grid">
+          <label>
+            Nombre
+            <input id="entityNameInput" type="text" required />
+          </label>
+          <label class="span-2">
+            Descripción
+            <textarea id="entityDescriptionInput" rows="3"></textarea>
+          </label>
+          <label>
+            Color
+            <div class="color-field">
+              <div class="preset-colors" id="entityPresetColors"></div>
+              <div class="custom-color-row">
+                <input id="entityColorInput" type="color" value="#0f766e" />
+                <button class="ghost-button" id="clearEntityColorButton" type="button">Sin color</button>
+              </div>
+            </div>
+          </label>
+          <label class="quote-only">
+            Moneda
+            <select id="entityCurrencyInput">
+              <option value="DOLARES">DOLARES</option>
+              <option value="PESOS">PESOS</option>
+            </select>
+          </label>
+          <label class="quote-only">
+            Cotización
+            <input id="entityQuoteInput" type="number" min="0" step="0.00000001" />
+          </label>
+          <label class="instrument-only checkbox-label span-2">
+            <input id="entityUsesPlatformQuotesInput" type="checkbox" />
+            Cotización por plataforma
+          </label>
+          <div class="platform-quotes-editor instrument-only span-2" id="platformQuotesEditor"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="saveEntityButton" value="default" type="submit">Guardar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="holdingDialog">
+      <form method="dialog" id="holdingForm" class="modal-card wide">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Tenencias</p>
+            <h2 id="holdingDialogTitle">Nueva tenencia</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <input type="hidden" id="holdingIdInput" />
+        <div class="form-grid">
+          <label>
+            Instrumento
+            <select id="holdingInstrumentInput" required></select>
+          </label>
+          <label>
+            Plataforma
+            <select id="holdingPlatformInput" required></select>
+          </label>
+          <label>
+            Tipo de instrumento
+            <select id="holdingTypeInput" required></select>
+          </label>
+          <label>
+            Cantidad
+            <input id="holdingQuantityInput" type="number" min="0" step="0.00000001" required />
+          </label>
+          <label>
+            Pendiente por cobrar USD
+            <input id="holdingPendingInput" type="number" min="0" step="0.01" />
+          </label>
+          <label class="span-2">
+            Descripción
+            <textarea id="holdingDescriptionInput" rows="2"></textarea>
+          </label>
+        </div>
+        <div class="quote-preview" id="quotePreview"></div>
+        <div class="allocations-header">
+          <h3>Asignación a fondos</h3>
+          <button class="secondary-button" id="addAllocationButton" type="button">
+            <i data-lucide="plus"></i>
+            Agregar asignación
+          </button>
+        </div>
+        <div class="allocations-list" id="allocationsList"></div>
+        <div class="modal-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="saveHoldingButton" value="default" type="submit">Guardar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="indicatorDialog">
+      <form method="dialog" id="indicatorForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">KPIs</p>
+            <h2 id="indicatorDialogTitle">Nuevo indicador</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <input id="indicatorIdInput" type="hidden" />
+        <div class="form-grid">
+          <label>
+            Nombre
+            <input id="indicatorNameInput" type="text" required />
+          </label>
+          <label>
+            Fondo origen
+            <select id="indicatorFundInput" required></select>
+          </label>
+          <label class="span-2">
+            Monto máximo esperado
+            <input id="indicatorMaxInput" type="number" min="0" step="0.01" required />
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="saveIndicatorButton" value="default" type="submit">
+            <i data-lucide="save"></i>
+            Guardar
+          </button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>
