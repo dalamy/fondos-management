@@ -122,6 +122,7 @@ const standardTransactionHeaders = [
   "tipo_movimiento",
   "ticker",
   "tipo_instrumento",
+  "fondo",
   "cantidad",
   "precio",
   "monto",
@@ -132,9 +133,10 @@ const standardTransactionHeaders = [
 
 const standardTransactionTemplateRows = [
   standardTransactionHeaders,
-  ["2026-01-15", "2026-01-17", "Bull Market Brokers", "COMPRA", "SPY", "ETF", "2", "500.25", "-1000.50", "DOLARES", "Compra ejemplo", "BMB-0001"],
-  ["2026-02-10", "2026-02-10", "Bull Market Brokers", "DIVIDENDO", "SPY", "ETF", "", "", "12.35", "DOLARES", "Dividendo ejemplo", "BMB-0002"],
-  ["2026-03-05", "2026-03-07", "IOL", "VENTA", "AL30", "BONO", "100", "72000", "72000", "PESOS", "Venta ejemplo", "IOL-0001"],
+  ["2026-01-15", "2026-01-17", "Bull Market Brokers", "COMPRA", "SPY", "ETF", "", "2", "500.25", "-1000.50", "DOLARES", "Compra ejemplo", "BMB-0001"],
+  ["2026-02-10", "2026-02-10", "Bull Market Brokers", "DIVIDENDO", "SPY", "ETF", "", "", "", "12.35", "DOLARES", "Dividendo ejemplo", "BMB-0002"],
+  ["2026-03-05", "2026-03-07", "IOL", "VENTA", "AL30", "BONO", "", "100", "72000", "72000", "PESOS", "Venta ejemplo", "IOL-0001"],
+  ["2026-04-01", "2026-04-01", "Cuenta propia", "COMPRA", "CASH DOLARES", "LIQUID", "Retiro", "1000", "1", "-1000", "DOLARES", "Liquidez dirigida a fondo", "CASH-0001"],
 ];
 
 const formatUsd = new Intl.NumberFormat("en-US", {
@@ -293,6 +295,7 @@ function normalizeTransaction(transaction) {
     sourceRow: toNumber(transaction.sourceRow, 0),
     sourceAccount: transaction.sourceAccount ?? "",
     platformId: transaction.platformId ?? "",
+    fundId: transaction.fundId ?? "",
     tradeDate: transaction.tradeDate ?? "",
     settlementDate: transaction.settlementDate ?? "",
     kind: transaction.kind ?? "ADJUSTMENT",
@@ -668,7 +671,7 @@ function renderTransactions() {
 function renderTransactionsTable() {
   const tbody = document.getElementById("transactionsTable");
   if (!state.transactions.length) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">Todavía no hay transacciones importadas.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">Todavía no hay transacciones importadas.</div></td></tr>`;
     return;
   }
 
@@ -677,10 +680,12 @@ function renderTransactionsTable() {
     .map((transaction) => {
       const platform = findById("platforms", transaction.platformId);
       const instrument = findById("instruments", transaction.instrumentId);
+      const fund = findById("funds", transaction.fundId);
       return `
         <tr>
           <td>${formatDisplayDate(transaction.tradeDate)}<div class="muted">${formatDisplayDate(transaction.settlementDate)}</div></td>
           <td>${escapeHtml(platform?.name ?? "Sin plataforma")}</td>
+          <td>${fund ? `<span class="chip">${escapeHtml(fund.name)}</span>` : `<span class="muted">-</span>`}</td>
           <td><span class="chip">${escapeHtml(transactionKindLabels[transaction.kind] ?? transaction.kind)}</span><div class="muted">${escapeHtml(transaction.rawType)}</div></td>
           <td><strong>${escapeHtml(instrument?.name ?? transaction.symbol ?? "Caja")}</strong><div class="muted">${escapeHtml(transaction.description)}</div></td>
           <td>${formatNumber.format(transaction.quantity)}</td>
@@ -956,7 +961,7 @@ function calculateFundReturns(instrumentGroups) {
 
   instrumentGroups.forEach((group) => {
     group.lots.forEach((event) => {
-      const fundShares = getFundSharesForInstrumentPlatform(group.instrumentId, event.platformId);
+      const fundShares = getFundSharesForReturnEvent(group, event);
       fundShares.forEach((share, fundId) => {
         const row = fundRows.get(fundId);
         if (!row || share <= 0) return;
@@ -985,6 +990,13 @@ function calculateFundReturns(instrumentGroups) {
     })
     .filter((row) => row.instrumentCount > 0 && row.purchases > 0)
     .sort((a, b) => Math.abs(b.netGain) - Math.abs(a.netGain));
+}
+
+function getFundSharesForReturnEvent(group, event) {
+  if (event.fundId && isCashLikeInstrumentId(group.instrumentId)) {
+    return new Map([[event.fundId, 1]]);
+  }
+  return getFundSharesForInstrumentPlatform(group.instrumentId, event.platformId);
 }
 
 function calculatePortfolioReturn(instrumentGroups) {
@@ -1569,6 +1581,7 @@ function normalizeStandardTransaction(row, fallbackPlatformId, fileName) {
   const price = parseLocaleNumber(row.precio);
   const amount = getSignedStandardAmount(kind, parseLocaleNumber(row.monto));
   const platformId = row.plataforma ? ensurePlatformForName(row.plataforma) : fallbackPlatformId;
+  const fundId = getStandardFundId(row.fondo);
   const tradeDate = parseStandardDate(row.fecha_operada);
   const settlementDate = parseStandardDate(row.fecha_liquidacion) || tradeDate;
   const typeId = symbol ? getStandardInstrumentTypeId(row.tipo_instrumento, symbol, kind, currency) : "";
@@ -1582,6 +1595,7 @@ function normalizeStandardTransaction(row, fallbackPlatformId, fileName) {
     settlementDate,
     kind,
     symbol,
+    fundId,
     row.cantidad,
     row.monto,
   ].map((part) => String(part ?? "").trim()).join("|");
@@ -1593,6 +1607,7 @@ function normalizeStandardTransaction(row, fallbackPlatformId, fileName) {
     sourceRow: row.__rowNumber,
     sourceAccount: currency,
     platformId,
+    fundId,
     tradeDate,
     settlementDate,
     kind,
@@ -1893,7 +1908,11 @@ function mergeTransactions(transactions) {
   transactions.forEach((transaction) => {
     const existing = bySourceKey.get(transaction.sourceKey);
     if (existing) {
-      Object.assign(existing, { ...transaction, id: existing.id });
+      Object.assign(existing, {
+        ...transaction,
+        id: existing.id,
+        fundId: transaction.fundId || existing.fundId || "",
+      });
       updated += 1;
     } else {
       state.transactions.push(transaction);
@@ -2006,12 +2025,23 @@ function isForcedEtfSymbol(symbol) {
   return ["QQQ", "SPY", "EFA", "BRKB"].includes(String(symbol ?? "").trim().toUpperCase());
 }
 
+function isCashLikeName(value) {
+  const normalized = normalizeHeader(value).replace(/[^a-z0-9]/g, "");
+  return ["cashdolares", "cashpesos", "dolares", "pesos", "usd", "ars"].includes(normalized);
+}
+
+function isCashLikeInstrumentId(instrumentId) {
+  const instrument = findById("instruments", instrumentId);
+  return isCashLikeName(instrument?.name);
+}
+
 function isBmbInstrumentMovement(kind, symbol) {
   return Boolean(symbol) && !["VARIAS", "MEP"].includes(symbol) && ["BUY", "SELL", "DIVIDEND", "INCOME"].includes(kind);
 }
 
 function inferInstrumentTypeId(symbol, kind, currency) {
   const upperSymbol = symbol.toUpperCase();
+  if (isCashLikeName(upperSymbol)) return ensureInstrumentType("LIQUID", "Efectivo y liquidez", currency);
   if (/^(AL\d+|GD\d+|SBC|S\d|T\d)/.test(upperSymbol)) return ensureInstrumentType("BONO", "Bonos y obligaciones negociables", currency);
   if (isForcedEtfSymbol(upperSymbol)) return ensureInstrumentType("ETF", "Fondos cotizados", currency);
   if (kind === "CAUCION_OPEN" || kind === "CAUCION_CLOSE") return ensureInstrumentType("CAUCION", "Cauciones bursátiles", currency);
@@ -2044,6 +2074,20 @@ function ensurePlatformForName(name) {
   });
   state.platforms.push(platform);
   return platform.id;
+}
+
+function getStandardFundId(name) {
+  const normalizedName = String(name ?? "").trim();
+  if (!normalizedName) return "";
+  const existing = state.funds.find((fund) => normalizeHeader(fund.name) === normalizeHeader(normalizedName));
+  if (existing) return existing.id;
+  const fund = normalizeColoredEntity({
+    id: makeStableId("fund", normalizedName),
+    name: normalizedName,
+    description: "Creado desde importación de transacciones",
+  });
+  state.funds.push(fund);
+  return fund.id;
 }
 
 function ensureInstrumentForSymbol(symbol, typeId, currency) {
@@ -2086,6 +2130,7 @@ function openTransactionDialog(id = "") {
   document.getElementById("transactionTradeDateInput").value = transaction?.tradeDate ?? todayIsoDate();
   document.getElementById("transactionSettlementDateInput").value = transaction?.settlementDate ?? "";
   fillSelect("transactionEditPlatformInput", state.platforms, transaction?.platformId ?? state.platforms[0]?.id);
+  fillOptionalFundSelect("transactionFundInput", transaction?.fundId ?? "");
   fillTransactionInstrumentSelect(transaction?.instrumentId ?? "");
   fillSelect("transactionInstrumentTypeInput", state.instrumentTypes, transaction?.typeId ?? state.instrumentTypes[0]?.id);
   document.getElementById("transactionKindInput").value = transaction?.kind ?? "BUY";
@@ -2113,6 +2158,7 @@ function saveTransaction() {
     sourceAdapter: existingTransaction?.sourceAdapter || "manual",
     sourceFile: existingTransaction?.sourceFile || "",
     platformId: document.getElementById("transactionEditPlatformInput").value,
+    fundId: document.getElementById("transactionFundInput").value,
     tradeDate: document.getElementById("transactionTradeDateInput").value,
     settlementDate: document.getElementById("transactionSettlementDateInput").value,
     kind: document.getElementById("transactionKindInput").value,
@@ -2481,6 +2527,13 @@ function fillSelect(elementId, items, selectedValue) {
   const select = document.getElementById(elementId);
   select.innerHTML = items.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("");
   select.value = selectedValue ?? items[0]?.id ?? "";
+}
+
+function fillOptionalFundSelect(elementId, selectedValue = "") {
+  const select = document.getElementById(elementId);
+  if (!select) return;
+  select.innerHTML = `<option value="">Sin fondo directo</option>${state.funds.map((fund) => `<option value="${fund.id}">${escapeHtml(fund.name)}</option>`).join("")}`;
+  select.value = selectedValue ?? "";
 }
 
 function renderAllocationRows(allocations) {
@@ -2891,11 +2944,12 @@ function isEntityInUse(kind, id) {
     return (
       state.holdings.some((holding) => holding.allocations?.some((allocation) => allocation.fundId === id)) ||
       state.kpis.retirementSalary.fundId === id ||
-      state.kpis.indicators.some((indicator) => indicator.fundId === id)
+      state.kpis.indicators.some((indicator) => indicator.fundId === id) ||
+      state.transactions.some((transaction) => transaction.fundId === id)
     );
   }
 
-  return state.holdings.some((holding) => holding[keyByKind[kind]] === id);
+  return state.holdings.some((holding) => holding[keyByKind[kind]] === id) || state.transactions.some((transaction) => transaction[keyByKind[kind]] === id);
 }
 
 function calculateInstrumentPerformance() {
@@ -2981,7 +3035,7 @@ function calculateReturnLotCharts() {
   [...byPosition.values()].forEach((row) => {
     const openLots = row.lots.filter((lot) => lot.remainingQuantity > 0.00000001 && lot.remainingCost > 0);
     const totalOpenQuantity = openLots.reduce((sum, lot) => sum + lot.remainingQuantity, 0);
-    const currentValue = getCurrentHoldingMarketValueForInstrument(row.instrumentId, row.platformId);
+    const currentValue = getCurrentHoldingMarketValueForReturnRow(row);
 
     openLots.forEach((lot) => {
       const valueShare = lot.remainingQuantity / totalOpenQuantity;
@@ -3063,21 +3117,42 @@ function calculateReturnLotCharts() {
 }
 
 function getReturnPositionRow(byPosition, transaction) {
-  const key = `${transaction.platformId}|${transaction.instrumentId}`;
+  const key = getReturnPositionKey(transaction);
   if (!byPosition.has(key)) {
     const instrument = findById("instruments", transaction.instrumentId);
     const platform = findById("platforms", transaction.platformId);
+    const fundId = getDirectedCashFundId(transaction);
+    const fund = findById("funds", fundId);
     byPosition.set(key, {
       instrumentId: transaction.instrumentId,
       platformId: transaction.platformId,
+      fundId,
       typeId: transaction.typeId,
       instrumentName: instrument?.name ?? transaction.symbol ?? "Instrumento",
-      platformName: platform?.name ?? "Sin plataforma",
+      platformName: fund ? `${platform?.name ?? "Sin plataforma"} · ${fund.name}` : platform?.name ?? "Sin plataforma",
       lots: [],
       sales: [],
     });
   }
   return byPosition.get(key);
+}
+
+function getReturnPositionKey(transaction) {
+  const fundId = getDirectedCashFundId(transaction);
+  return [transaction.platformId, transaction.instrumentId, fundId].join("|");
+}
+
+function getDirectedCashFundId(transaction) {
+  return transaction.fundId && isCashLikeInstrumentId(transaction.instrumentId) ? transaction.fundId : "";
+}
+
+function getCurrentHoldingMarketValueForReturnRow(row) {
+  if (!row.fundId || !isCashLikeInstrumentId(row.instrumentId)) {
+    return getCurrentHoldingMarketValueForInstrument(row.instrumentId, row.platformId);
+  }
+  return getHoldingSlices()
+    .filter((slice) => slice.fundId === row.fundId && slice.holding.instrumentId === row.instrumentId && slice.holding.platformId === row.platformId)
+    .reduce((sum, slice) => sum + slice.current, 0);
 }
 
 function getReturnInstrumentGroup(byInstrument, row) {
@@ -3111,6 +3186,7 @@ function addReturnLot(row, transaction, amountUsd) {
     realizedProceeds: 0,
     realizedCost: 0,
     usesNotionalQuantity: Boolean(transaction.usesNotionalQuantity),
+    fundId: row.fundId,
     dividends: 0,
     dividendCashflows: [],
   });
@@ -3159,6 +3235,7 @@ function consumeReturnLots(row, transaction) {
       dividends: dividendPortion,
       dividendCashflows,
       usesNotionalQuantity: Boolean(transaction.usesNotionalQuantity || lot.usesNotionalQuantity),
+      fundId: row.fundId,
       rawType: transaction.rawType,
     });
     quantityToSell -= soldQuantity;
