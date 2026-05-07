@@ -254,6 +254,7 @@
                   <th>Fecha</th>
                   <th>Plataforma</th>
                   <th>Fondo</th>
+                  <th>Estado</th>
                   <th>Tipo</th>
                   <th>Instrumento</th>
                   <th>Cantidad</th>
@@ -284,8 +285,13 @@
               <input id="inflationAdjustmentInput" type="checkbox" />
               Ajustar movimientos por inflación
             </label>
+            <button class="secondary-button returns-edit-funds-button" id="toggleReturnFundControlsButton" type="button">
+              <i data-lucide="sliders-horizontal"></i>
+              Editar fondos
+            </button>
           </div>
           <div class="fund-returns-grid" id="fundReturnsGrid"></div>
+          <div class="fund-evolution-grid" id="fundEvolutionGrid"></div>
           <div class="returns-grid" id="returnsGrid"></div>
         </section>
 
@@ -513,6 +519,13 @@
             Fondo asociado
             <select id="transactionFundInput"></select>
             <small>Opcional. Se usa en rendimientos solo para liquidez.</small>
+          </label>
+          <label>
+            Estado
+            <select id="transactionStatusInput">
+              <option value="REALIZADA">Realizada</option>
+              <option value="PENDIENTE">Pendiente</option>
+            </select>
           </label>
           <label>
             Tipo

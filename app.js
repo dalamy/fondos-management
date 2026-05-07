@@ -35,6 +35,8 @@ const seedState = {
   settings: {
     arsUsd: 1000,
     applyInflationAdjustment: false,
+    returnFundOrder: [],
+    returnPortfolioExcludedFundIds: [],
   },
   fxRates: {
     blue: {
@@ -84,6 +86,7 @@ const seedState = {
 let state = loadState();
 let charts = [];
 let returnsTypeFilterId = "all";
+let returnFundControlsVisible = false;
 const returnChartUnitModes = {};
 const dashboardFilters = {
   fundIds: new Set(),
@@ -115,10 +118,16 @@ const transactionKindLabels = {
   ADJUSTMENT: "Ajuste",
 };
 
+const transactionStatusLabels = {
+  REALIZADA: "Realizada",
+  PENDIENTE: "Pendiente",
+};
+
 const standardTransactionHeaders = [
   "fecha_operada",
   "fecha_liquidacion",
   "plataforma",
+  "estado",
   "tipo_movimiento",
   "ticker",
   "tipo_instrumento",
@@ -133,10 +142,10 @@ const standardTransactionHeaders = [
 
 const standardTransactionTemplateRows = [
   standardTransactionHeaders,
-  ["2026-01-15", "2026-01-17", "Bull Market Brokers", "COMPRA", "SPY", "ETF", "", "2", "500.25", "-1000.50", "DOLARES", "Compra ejemplo", "BMB-0001"],
-  ["2026-02-10", "2026-02-10", "Bull Market Brokers", "DIVIDENDO", "SPY", "ETF", "", "", "", "12.35", "DOLARES", "Dividendo ejemplo", "BMB-0002"],
-  ["2026-03-05", "2026-03-07", "IOL", "VENTA", "AL30", "BONO", "", "100", "72000", "72000", "PESOS", "Venta ejemplo", "IOL-0001"],
-  ["2026-04-01", "2026-04-01", "Cuenta propia", "COMPRA", "CASH DOLARES", "LIQUID", "Retiro", "1000", "1", "-1000", "DOLARES", "Liquidez dirigida a fondo", "CASH-0001"],
+  ["2026-01-15", "2026-01-17", "Bull Market Brokers", "REALIZADA", "COMPRA", "SPY", "ETF", "", "2", "500.25", "-1000.50", "DOLARES", "Compra ejemplo", "BMB-0001"],
+  ["2026-02-10", "2026-02-10", "Bull Market Brokers", "REALIZADA", "DIVIDENDO", "SPY", "ETF", "", "", "", "12.35", "DOLARES", "Dividendo ejemplo", "BMB-0002"],
+  ["2026-03-05", "2026-03-07", "IOL", "REALIZADA", "VENTA", "AL30", "BONO", "", "100", "72000", "72000", "PESOS", "Venta ejemplo", "IOL-0001"],
+  ["2026-04-01", "2026-04-01", "Cuenta propia", "PENDIENTE", "COMPRA", "CASH DOLARES", "LIQUID", "Retiro", "1000", "1", "-1000", "DOLARES", "Liquidez dirigida a fondo", "CASH-0001"],
 ];
 
 const formatUsd = new Intl.NumberFormat("en-US", {
@@ -205,6 +214,8 @@ function loadState() {
 
 function normalizeState(nextState) {
   nextState.settings = { ...seedState.settings, ...(nextState.settings ?? {}) };
+  nextState.settings.returnFundOrder = Array.isArray(nextState.settings.returnFundOrder) ? nextState.settings.returnFundOrder : [];
+  nextState.settings.returnPortfolioExcludedFundIds = Array.isArray(nextState.settings.returnPortfolioExcludedFundIds) ? nextState.settings.returnPortfolioExcludedFundIds : [];
   nextState.fxRates = normalizeFxRates(nextState.fxRates);
   nextState.inflation = {
     rates: normalizeInflationRates(nextState.inflation?.rates?.length ? nextState.inflation.rates : seedInflationRates),
@@ -296,6 +307,7 @@ function normalizeTransaction(transaction) {
     sourceAccount: transaction.sourceAccount ?? "",
     platformId: transaction.platformId ?? "",
     fundId: transaction.fundId ?? "",
+    status: normalizeTransactionStatus(transaction.status ?? transaction.estado),
     tradeDate: transaction.tradeDate ?? "",
     settlementDate: transaction.settlementDate ?? "",
     kind: transaction.kind ?? "ADJUSTMENT",
@@ -311,6 +323,12 @@ function normalizeTransaction(transaction) {
     rawReference: transaction.rawReference ?? "",
     usesNotionalQuantity: Boolean(transaction.usesNotionalQuantity),
   };
+}
+
+function normalizeTransactionStatus(value) {
+  const normalized = normalizeHeader(value);
+  if (normalized.includes("pend")) return "PENDIENTE";
+  return "REALIZADA";
 }
 
 function normalizeInstrument(instrument) {
@@ -552,6 +570,11 @@ function bindReturns() {
     saveState();
     render();
   });
+  document.getElementById("toggleReturnFundControlsButton")?.addEventListener("click", () => {
+    returnFundControlsVisible = !returnFundControlsVisible;
+    renderReturns();
+    refreshIcons();
+  });
 }
 
 function render() {
@@ -671,7 +694,7 @@ function renderTransactions() {
 function renderTransactionsTable() {
   const tbody = document.getElementById("transactionsTable");
   if (!state.transactions.length) {
-    tbody.innerHTML = `<tr><td colspan="10"><div class="empty-state">Todavía no hay transacciones importadas.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">Todavía no hay transacciones importadas.</div></td></tr>`;
     return;
   }
 
@@ -686,6 +709,7 @@ function renderTransactionsTable() {
           <td>${formatDisplayDate(transaction.tradeDate)}<div class="muted">${formatDisplayDate(transaction.settlementDate)}</div></td>
           <td>${escapeHtml(platform?.name ?? "Sin plataforma")}</td>
           <td>${fund ? `<span class="chip">${escapeHtml(fund.name)}</span>` : `<span class="muted">-</span>`}</td>
+          <td><span class="chip ${transaction.status === "PENDIENTE" ? "pending-chip" : ""}">${escapeHtml(transactionStatusLabels[transaction.status] ?? transaction.status)}</span></td>
           <td><span class="chip">${escapeHtml(transactionKindLabels[transaction.kind] ?? transaction.kind)}</span><div class="muted">${escapeHtml(transaction.rawType)}</div></td>
           <td><strong>${escapeHtml(instrument?.name ?? transaction.symbol ?? "Caja")}</strong><div class="muted">${escapeHtml(transaction.description)}</div></td>
           <td>${formatNumber.format(transaction.quantity)}</td>
@@ -758,10 +782,10 @@ function renderReturns() {
           </div>
         </div>
         <div class="return-totals">
-          <div><span>Compras</span><strong>${formatUsd.format(group.totalPurchases)}</strong></div>
-          <div><span>Ventas</span><strong>${formatUsd.format(group.totalSales)}</strong></div>
+          <div><span>Compras${renderPendingSuffix(group.pendingPurchases)}</span><strong>${formatUsd.format(group.totalPurchases)}</strong></div>
+          <div><span>Ventas${renderPendingSuffix(group.pendingSales)}</span><strong>${formatUsd.format(group.totalSales)}</strong></div>
           <div><span>Compras - ventas</span><strong>${formatUsd.format(group.netPurchases)}</strong></div>
-          <div><span>Valor actual</span><strong>${formatUsd.format(group.currentValue)}</strong></div>
+          <div><span>Valor actual${renderPendingSuffix(group.pendingCurrentValue)}</span><strong>${formatUsd.format(group.currentValue)}</strong></div>
           <div><span>Ganancia / pérdida neta</span><strong class="${group.netGain >= 0 ? "positive" : "negative"}">${formatUsd.format(group.netGain)}</strong></div>
         </div>
         <div class="return-chart-options">
@@ -783,7 +807,7 @@ function renderReturns() {
 
 function destroyReturnCharts() {
   charts = charts.filter((chart) => {
-    if (chart.canvas?.id?.startsWith("returnChart")) {
+    if (chart.canvas?.id?.startsWith("returnChart") || chart.canvas?.id?.startsWith("fundEvolutionChart")) {
       chart.destroy();
       return false;
     }
@@ -794,28 +818,40 @@ function destroyReturnCharts() {
 function renderFundReturns(instrumentGroups) {
   const grid = document.getElementById("fundReturnsGrid");
   if (!grid) return;
-  const rows = calculateFundReturns(instrumentGroups);
-  const portfolio = calculatePortfolioReturn(instrumentGroups);
+  const rows = sortFundReturnRows(calculateFundReturns(instrumentGroups));
+  const portfolio = calculatePortfolioReturnFromFundRows(rows);
   if (!rows.length && !portfolio) {
     grid.innerHTML = "";
+    renderFundEvolutionCharts(rows);
     return;
   }
 
+  const includedFundCount = rows.filter((row) => isFundIncludedInPortfolio(row.fundId)).length;
   const portfolioCard = portfolio ? renderReturnAggregateCard({
     title: "Cartera total",
     eyebrow: "Valuación general",
-    subtitle: `${portfolio.instrumentCount} ${portfolio.instrumentCount === 1 ? "instrumento" : "instrumentos"} combinados`,
+    subtitle: `${portfolio.instrumentCount} ${portfolio.instrumentCount === 1 ? "instrumento" : "instrumentos"} · ${includedFundCount} ${includedFundCount === 1 ? "fondo incluido" : "fondos incluidos"}`,
     row: portfolio,
     className: "portfolio-return-card",
   }) : "";
 
   grid.innerHTML = portfolioCard + rows
-    .map((row) => `
-      <article class="fund-return-card">
+    .map((row, index) => `
+      <article class="fund-return-card ${isFundIncludedInPortfolio(row.fundId) ? "" : "excluded-return-card"}">
         <div>
           <span>Fondo</span>
           <h3>${escapeHtml(row.fundName)}</h3>
-          <small>${row.instrumentCount} ${row.instrumentCount === 1 ? "instrumento" : "instrumentos"} ponderados</small>
+          <small>${row.instrumentCount} ${row.instrumentCount === 1 ? "instrumento ponderado" : "instrumentos ponderados"}</small>
+        </div>
+        <div class="fund-return-actions" ${returnFundControlsVisible ? "" : "hidden"}>
+          <label class="checkbox-label" title="Incluir en cartera total">
+            <input type="checkbox" ${isFundIncludedInPortfolio(row.fundId) ? "checked" : ""} onchange="toggleReturnPortfolioFund('${row.fundId}', this.checked)" />
+            Cartera
+          </label>
+          <div class="fund-order-actions">
+            <button class="icon-button" type="button" title="Subir fondo" ${index === 0 ? "disabled" : ""} onclick="moveReturnFund('${row.fundId}', -1)"><i data-lucide="arrow-up"></i></button>
+            <button class="icon-button" type="button" title="Bajar fondo" ${index === rows.length - 1 ? "disabled" : ""} onclick="moveReturnFund('${row.fundId}', 1)"><i data-lucide="arrow-down"></i></button>
+          </div>
         </div>
         <div class="fund-return-main">
           <strong class="${row.totalReturnPercent >= 0 ? "positive" : "negative"}">${formatPercentOneDecimal(row.totalReturnPercent * 100)}</strong>
@@ -824,16 +860,19 @@ function renderFundReturns(instrumentGroups) {
         <div class="fund-return-current">
           <span>Valor actual</span>
           <strong>${formatUsd.format(row.currentValue)}</strong>
+          ${renderPendingLine(row.pendingCurrentValue, "Pendiente por cobrar")}
         </div>
         <div class="fund-return-metrics">
-          <span>Compras ${formatUsd.format(row.purchases)}</span>
-          <span>Ventas ${formatUsd.format(row.sales)}</span>
-          <span>Ingresos ${formatUsd.format(row.income)}</span>
+          <span>Compras ${formatUsd.format(row.purchases)}${renderPendingSuffix(row.pendingPurchases)}</span>
+          <span>Ventas ${formatUsd.format(row.sales)}${renderPendingSuffix(row.pendingSales)}</span>
+          <span>Ingresos ${formatUsd.format(row.income)}${renderPendingSuffix(row.pendingIncome)}</span>
           <span class="${row.netGain >= 0 ? "positive" : "negative"}">Neto ${formatUsd.format(row.netGain)}</span>
         </div>
       </article>
     `)
     .join("");
+  renderFundEvolutionCharts(rows);
+  refreshIcons();
 }
 
 function renderReturnAggregateCard({ title, eyebrow, subtitle, row, className = "" }) {
@@ -851,15 +890,110 @@ function renderReturnAggregateCard({ title, eyebrow, subtitle, row, className = 
       <div class="fund-return-current">
         <span>Valor actual</span>
         <strong>${formatUsd.format(row.currentValue)}</strong>
+        ${renderPendingLine(row.pendingCurrentValue, "Pendiente por cobrar")}
       </div>
       <div class="fund-return-metrics">
-        <span>Compras ${formatUsd.format(row.purchases)}</span>
-        <span>Ventas ${formatUsd.format(row.sales)}</span>
-        <span>Ingresos ${formatUsd.format(row.income)}</span>
+        <span>Compras ${formatUsd.format(row.purchases)}${renderPendingSuffix(row.pendingPurchases)}</span>
+        <span>Ventas ${formatUsd.format(row.sales)}${renderPendingSuffix(row.pendingSales)}</span>
+        <span>Ingresos ${formatUsd.format(row.income)}${renderPendingSuffix(row.pendingIncome)}</span>
         <span class="${row.netGain >= 0 ? "positive" : "negative"}">Neto ${formatUsd.format(row.netGain)}</span>
       </div>
     </article>
   `;
+}
+
+function renderPendingLine(value, label) {
+  return value > 0 ? `<small>${escapeHtml(label)} ${formatUsd.format(value)}</small>` : "";
+}
+
+function renderPendingSuffix(value) {
+  return value > 0 ? ` · Pendiente ${formatUsd.format(value)}` : "";
+}
+
+function sortFundReturnRows(rows) {
+  const orderedIds = normalizeReturnFundOrder(rows.map((row) => row.fundId));
+  const orderMap = new Map(orderedIds.map((fundId, index) => [fundId, index]));
+  return [...rows].sort((a, b) => (orderMap.get(a.fundId) ?? 9999) - (orderMap.get(b.fundId) ?? 9999));
+}
+
+function normalizeReturnFundOrder(activeFundIds = state.funds.map((fund) => fund.id)) {
+  const activeSet = new Set(activeFundIds);
+  const storedOrder = (state.settings.returnFundOrder ?? []).filter((fundId) => activeSet.has(fundId));
+  const missingIds = activeFundIds.filter((fundId) => !storedOrder.includes(fundId));
+  const nextOrder = [...storedOrder, ...missingIds];
+  state.settings.returnFundOrder = nextOrder;
+  return nextOrder;
+}
+
+function isFundIncludedInPortfolio(fundId) {
+  return !state.settings.returnPortfolioExcludedFundIds.includes(fundId);
+}
+
+function toggleReturnPortfolioFund(fundId, included) {
+  const excludedIds = new Set(state.settings.returnPortfolioExcludedFundIds ?? []);
+  if (included) {
+    excludedIds.delete(fundId);
+  } else {
+    excludedIds.add(fundId);
+  }
+  state.settings.returnPortfolioExcludedFundIds = [...excludedIds];
+  saveState();
+  renderReturns();
+  refreshIcons();
+}
+
+function moveReturnFund(fundId, direction) {
+  const rows = calculateFundReturns(calculateReturnLotCharts());
+  const activeIds = rows.map((row) => row.fundId);
+  const order = normalizeReturnFundOrder(activeIds);
+  const index = order.indexOf(fundId);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+  const [movedFundId] = order.splice(index, 1);
+  order.splice(nextIndex, 0, movedFundId);
+  state.settings.returnFundOrder = order;
+  saveState();
+  renderReturns();
+  refreshIcons();
+}
+
+function calculatePortfolioReturnFromFundRows(rows) {
+  const includedRows = rows.filter((row) => isFundIncludedInPortfolio(row.fundId));
+  if (!includedRows.length) return null;
+  const row = {
+    purchases: 0,
+    sales: 0,
+    currentValue: 0,
+    pendingPurchases: 0,
+    pendingSales: 0,
+    pendingCurrentValue: 0,
+    pendingIncome: 0,
+    income: 0,
+    netGain: 0,
+    totalReturnPercent: 0,
+    xirr: null,
+    cashflows: [],
+    instrumentIds: new Set(),
+  };
+
+  includedRows.forEach((fundRow) => {
+    row.purchases += fundRow.purchases;
+    row.sales += fundRow.sales;
+    row.currentValue += fundRow.currentValue;
+    row.pendingPurchases += fundRow.pendingPurchases;
+    row.pendingSales += fundRow.pendingSales;
+    row.pendingCurrentValue += fundRow.pendingCurrentValue;
+    row.pendingIncome += fundRow.pendingIncome;
+    row.income += fundRow.income;
+    row.cashflows.push(...fundRow.cashflows);
+    fundRow.instrumentIds.forEach((instrumentId) => row.instrumentIds.add(instrumentId));
+  });
+
+  row.netGain = row.sales + row.currentValue + row.income - row.purchases;
+  row.totalReturnPercent = row.purchases > 0 ? row.netGain / row.purchases : 0;
+  row.xirr = calculateXirr(row.cashflows);
+  row.instrumentCount = row.instrumentIds.size;
+  return row.instrumentCount > 0 && row.purchases > 0 ? row : null;
 }
 
 function renderReturnsControls() {
@@ -872,6 +1006,12 @@ function renderReturnsControls() {
   }
   const inflationInput = document.getElementById("inflationAdjustmentInput");
   if (inflationInput) inflationInput.checked = Boolean(state.settings.applyInflationAdjustment);
+  const editFundsButton = document.getElementById("toggleReturnFundControlsButton");
+  if (editFundsButton) {
+    editFundsButton.classList.toggle("is-active", returnFundControlsVisible);
+    editFundsButton.setAttribute("aria-pressed", String(returnFundControlsVisible));
+    editFundsButton.innerHTML = `<i data-lucide="${returnFundControlsVisible ? "eye-off" : "sliders-horizontal"}"></i>${returnFundControlsVisible ? "Ocultar controles" : "Editar fondos"}`;
+  }
 }
 
 function returnGroupMatchesTypeFilter(group) {
@@ -949,6 +1089,10 @@ function calculateFundReturns(instrumentGroups) {
         purchases: 0,
         sales: 0,
         currentValue: 0,
+        pendingPurchases: 0,
+        pendingSales: 0,
+        pendingCurrentValue: 0,
+        pendingIncome: 0,
         income: 0,
         netGain: 0,
         totalReturnPercent: 0,
@@ -969,16 +1113,26 @@ function calculateFundReturns(instrumentGroups) {
         const saleValue = toNumber(event.proceeds, 0) * share;
         const currentValue = toNumber(event.currentValue, 0) * share;
         const incomeValue = toNumber(event.dividends, 0) * share;
+        const pendingPurchaseValue = toNumber(event.pendingPurchase, 0) * share;
+        const pendingSaleValue = toNumber(event.pendingSales, 0) * share;
+        const pendingCurrentValue = toNumber(event.pendingCurrentValue, 0) * share;
+        const pendingIncomeValue = toNumber(event.pendingDividends, 0) * share;
 
         row.purchases += purchaseValue;
         row.sales += saleValue;
         row.currentValue += currentValue;
+        row.pendingPurchases += pendingPurchaseValue;
+        row.pendingSales += pendingSaleValue;
+        row.pendingCurrentValue += pendingCurrentValue;
+        row.pendingIncome += pendingIncomeValue;
         row.income += incomeValue;
         row.instrumentIds.add(group.instrumentId);
         row.cashflows.push(...getReturnEventCashflows(event).map((flow) => ({ ...flow, amount: flow.amount * share })));
       });
     });
   });
+
+  applyHoldingPendingReceivablesToFundRows(fundRows);
 
   return [...fundRows.values()]
     .map((row) => {
@@ -990,6 +1144,28 @@ function calculateFundReturns(instrumentGroups) {
     })
     .filter((row) => row.instrumentCount > 0 && row.purchases > 0)
     .sort((a, b) => Math.abs(b.netGain) - Math.abs(a.netGain));
+}
+
+function applyHoldingPendingReceivablesToFundRows(fundRows) {
+  const pendingByFund = getPendingReceivablesByFund();
+  pendingByFund.forEach((pendingValue, fundId) => {
+    const row = fundRows.get(fundId);
+    if (!row || pendingValue <= 0) return;
+    const extraPendingValue = Math.max(0, pendingValue - row.pendingCurrentValue);
+    if (extraPendingValue <= 0) return;
+    row.currentValue += extraPendingValue;
+    row.pendingCurrentValue += extraPendingValue;
+    row.cashflows.push({ date: todayIsoDate(), amount: extraPendingValue });
+  });
+}
+
+function getPendingReceivablesByFund() {
+  const pendingByFund = new Map();
+  getHoldingSlices().forEach((slice) => {
+    if (slice.fundId === noFundFilterId || slice.pending <= 0) return;
+    pendingByFund.set(slice.fundId, (pendingByFund.get(slice.fundId) ?? 0) + slice.pending);
+  });
+  return pendingByFund;
 }
 
 function getFundSharesForReturnEvent(group, event) {
@@ -1004,6 +1180,10 @@ function calculatePortfolioReturn(instrumentGroups) {
     purchases: 0,
     sales: 0,
     currentValue: 0,
+    pendingPurchases: 0,
+    pendingSales: 0,
+    pendingCurrentValue: 0,
+    pendingIncome: 0,
     income: 0,
     netGain: 0,
     totalReturnPercent: 0,
@@ -1017,11 +1197,23 @@ function calculatePortfolioReturn(instrumentGroups) {
       row.purchases += getReturnEventCost(event);
       row.sales += toNumber(event.proceeds, 0);
       row.currentValue += toNumber(event.currentValue, 0);
+      row.pendingPurchases += toNumber(event.pendingPurchase, 0);
+      row.pendingSales += toNumber(event.pendingSales, 0);
+      row.pendingCurrentValue += toNumber(event.pendingCurrentValue, 0);
+      row.pendingIncome += toNumber(event.pendingDividends, 0);
       row.income += toNumber(event.dividends, 0);
       row.instrumentIds.add(group.instrumentId);
       row.cashflows.push(...getReturnEventCashflows(event));
     });
   });
+
+  const holdingPending = [...getPendingReceivablesByFund().values()].reduce((sum, value) => sum + value, 0);
+  const extraPendingValue = Math.max(0, holdingPending - row.pendingCurrentValue);
+  row.currentValue += extraPendingValue;
+  row.pendingCurrentValue += extraPendingValue;
+  if (extraPendingValue > 0) {
+    row.cashflows.push({ date: todayIsoDate(), amount: extraPendingValue });
+  }
 
   row.netGain = row.sales + row.currentValue + row.income - row.purchases;
   row.totalReturnPercent = row.purchases > 0 ? row.netGain / row.purchases : 0;
@@ -1059,6 +1251,169 @@ function getReturnEventCashflows(event) {
     ...event.dividendCashflows,
     { date: todayIsoDate(), amount: event.currentValue },
   ];
+}
+
+function renderFundEvolutionCharts(fundRows) {
+  const grid = document.getElementById("fundEvolutionGrid");
+  if (!grid) return;
+  const seriesRows = buildFundEvolutionSeries(fundRows);
+  if (!seriesRows.length) {
+    grid.innerHTML = "";
+    return;
+  }
+
+  grid.innerHTML = seriesRows
+    .map((row, index) => `
+      <article class="fund-evolution-card">
+        <div class="fund-evolution-header">
+          <div>
+            <span>Evolución de tenencia</span>
+            <h3>${escapeHtml(row.fundName)}</h3>
+          </div>
+          <strong>${formatUsd.format(row.currentValue)}</strong>
+        </div>
+        <div class="fund-evolution-chart-wrap">
+          <canvas id="fundEvolutionChart${index}"></canvas>
+        </div>
+      </article>
+    `)
+    .join("");
+
+  seriesRows.forEach((row, index) => createFundEvolutionChart(`fundEvolutionChart${index}`, row));
+}
+
+function buildFundEvolutionSeries(fundRows) {
+  const rowsByFund = new Map(fundRows.map((row) => [row.fundId, row]));
+  const eventsByFund = new Map();
+
+  [...state.transactions]
+    .filter((transaction) => transaction.instrumentId)
+    .sort(compareTransactionsByDate)
+    .forEach((transaction) => {
+      const delta = getFundEvolutionTransactionDelta(transaction);
+      if (delta === 0) return;
+      const shares = getFundSharesForTransaction(transaction);
+      shares.forEach((share, fundId) => {
+        if (!rowsByFund.has(fundId) || share <= 0) return;
+        if (!eventsByFund.has(fundId)) eventsByFund.set(fundId, []);
+        eventsByFund.get(fundId).push({
+          date: transaction.tradeDate || transaction.settlementDate || todayIsoDate(),
+          value: delta * share,
+          label: transactionKindLabels[transaction.kind] ?? transaction.kind,
+          instrumentName: findById("instruments", transaction.instrumentId)?.name ?? transaction.symbol ?? "Instrumento",
+          status: transaction.status ?? "REALIZADA",
+        });
+      });
+    });
+
+  return fundRows
+    .map((row) => {
+      const events = eventsByFund.get(row.fundId) ?? [];
+      let accumulated = 0;
+      const points = events.map((event) => {
+        accumulated += event.value;
+        return {
+          ...event,
+          accumulated,
+        };
+      });
+      const today = todayIsoDate();
+      if (row.currentValue > 0 && (!points.length || points[points.length - 1].date !== today || Math.abs(points[points.length - 1].accumulated - row.currentValue) > 0.01)) {
+        points.push({
+          date: today,
+          value: row.currentValue - accumulated,
+          accumulated: row.currentValue,
+          label: "Valor actual",
+          instrumentName: "Cartera del fondo",
+          status: "REALIZADA",
+        });
+      }
+      return {
+        ...row,
+        points,
+      };
+    })
+    .filter((row) => row.points.length);
+}
+
+function getFundSharesForTransaction(transaction) {
+  if (transaction.fundId && isCashLikeInstrumentId(transaction.instrumentId)) {
+    return new Map([[transaction.fundId, 1]]);
+  }
+  return getFundSharesForInstrumentPlatform(transaction.instrumentId, transaction.platformId);
+}
+
+function getFundEvolutionTransactionDelta(transaction) {
+  const amountUsd = convertTransactionAmountToUsd(transaction);
+  if (amountUsd === 0) return 0;
+  if (transaction.kind === "BUY" || transaction.kind === "CAUCION_OPEN") return Math.abs(amountUsd);
+  if (transaction.kind === "SELL" || transaction.kind === "WITHDRAWAL" || transaction.kind === "FEE" || transaction.kind === "TAX" || transaction.kind === "CAUCION_CLOSE") return -Math.abs(amountUsd);
+  if (transaction.kind === "DIVIDEND" || transaction.kind === "INCOME" || transaction.kind === "DEPOSIT") return Math.abs(amountUsd);
+  return amountUsd;
+}
+
+function createFundEvolutionChart(canvasId, row) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  charts.push(
+    new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: row.points.map((point) => formatDisplayDate(point.date)),
+        datasets: [
+          {
+            label: row.fundName,
+            data: row.points.map((point) => point.accumulated),
+            borderColor: findById("funds", row.fundId)?.color || "#0f766e",
+            backgroundColor: "rgba(15, 118, 110, 0.12)",
+            pointBackgroundColor: row.points.map((point) => (point.status === "PENDIENTE" ? "#d6a51f" : findById("funds", row.fundId)?.color || "#0f766e")),
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            tension: 0.2,
+            fill: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(context) {
+                return `Tenencia: ${formatUsd.format(context.parsed.y)}`;
+              },
+              afterBody(items) {
+                const point = row.points[items[0]?.dataIndex];
+                if (!point) return "";
+                return [
+                  `Movimiento: ${point.label}`,
+                  `Instrumento: ${point.instrumentName}`,
+                  `Variación: ${formatUsd.format(point.value)}`,
+                  `Estado: ${transactionStatusLabels[point.status] ?? point.status}`,
+                ];
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { maxRotation: 45, minRotation: 0 },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback(value) {
+                return formatUsd.format(value);
+              },
+            },
+          },
+        },
+      },
+    }),
+  );
 }
 
 function getReturnEventCurrentUnitValue(event) {
@@ -1582,6 +1937,7 @@ function normalizeStandardTransaction(row, fallbackPlatformId, fileName) {
   const amount = getSignedStandardAmount(kind, parseLocaleNumber(row.monto));
   const platformId = row.plataforma ? ensurePlatformForName(row.plataforma) : fallbackPlatformId;
   const fundId = getStandardFundId(row.fondo);
+  const status = normalizeTransactionStatus(row.estado);
   const tradeDate = parseStandardDate(row.fecha_operada);
   const settlementDate = parseStandardDate(row.fecha_liquidacion) || tradeDate;
   const typeId = symbol ? getStandardInstrumentTypeId(row.tipo_instrumento, symbol, kind, currency) : "";
@@ -1594,6 +1950,7 @@ function normalizeStandardTransaction(row, fallbackPlatformId, fileName) {
     tradeDate,
     settlementDate,
     kind,
+    status,
     symbol,
     fundId,
     row.cantidad,
@@ -1608,6 +1965,7 @@ function normalizeStandardTransaction(row, fallbackPlatformId, fileName) {
     sourceAccount: currency,
     platformId,
     fundId,
+    status,
     tradeDate,
     settlementDate,
     kind,
@@ -2131,6 +2489,7 @@ function openTransactionDialog(id = "") {
   document.getElementById("transactionSettlementDateInput").value = transaction?.settlementDate ?? "";
   fillSelect("transactionEditPlatformInput", state.platforms, transaction?.platformId ?? state.platforms[0]?.id);
   fillOptionalFundSelect("transactionFundInput", transaction?.fundId ?? "");
+  document.getElementById("transactionStatusInput").value = transaction?.status ?? "REALIZADA";
   fillTransactionInstrumentSelect(transaction?.instrumentId ?? "");
   fillSelect("transactionInstrumentTypeInput", state.instrumentTypes, transaction?.typeId ?? state.instrumentTypes[0]?.id);
   document.getElementById("transactionKindInput").value = transaction?.kind ?? "BUY";
@@ -2159,6 +2518,7 @@ function saveTransaction() {
     sourceFile: existingTransaction?.sourceFile || "",
     platformId: document.getElementById("transactionEditPlatformInput").value,
     fundId: document.getElementById("transactionFundInput").value,
+    status: document.getElementById("transactionStatusInput").value,
     tradeDate: document.getElementById("transactionTradeDateInput").value,
     settlementDate: document.getElementById("transactionSettlementDateInput").value,
     kind: document.getElementById("transactionKindInput").value,
@@ -3038,8 +3398,13 @@ function calculateReturnLotCharts() {
     const currentValue = getCurrentHoldingMarketValueForReturnRow(row);
 
     openLots.forEach((lot) => {
-      const valueShare = lot.remainingQuantity / totalOpenQuantity;
-      const lotCurrentValue = currentValue * valueShare;
+      const valueShare = totalOpenQuantity > 0 ? lot.remainingQuantity / totalOpenQuantity : 0;
+      let lotCurrentValue = currentValue * valueShare;
+      let pendingCurrentValue = lot.status === "PENDIENTE" ? lotCurrentValue : 0;
+      if (lot.status === "PENDIENTE" && isCashLikeInstrumentId(row.instrumentId) && lotCurrentValue <= 0) {
+        lotCurrentValue = lot.remainingCost;
+        pendingCurrentValue = lotCurrentValue;
+      }
       const returnAmount = lotCurrentValue + lot.dividends - lot.remainingCost;
       const returnPercent = lot.remainingCost > 0 ? returnAmount / lot.remainingCost : 0;
       const xirr = calculateXirr([
@@ -3056,6 +3421,7 @@ function calculateReturnLotCharts() {
         currentValue: lotCurrentValue,
         purchasePrice: lot.originalQuantity > 0 ? lot.originalCost / lot.originalQuantity : 0,
         currentPrice: lot.remainingQuantity > 0 ? lotCurrentValue / lot.remainingQuantity : 0,
+        pendingCurrentValue,
         returnAmount,
         returnPercent,
         xirr,
@@ -3108,6 +3474,10 @@ function calculateReturnLotCharts() {
       group.totalSales = group.lots.reduce((sum, lot) => sum + toNumber(lot.proceeds, 0), 0);
       group.currentValue = group.lots.reduce((sum, lot) => sum + toNumber(lot.currentValue, 0), 0);
       group.totalDividends = totalDividends;
+      group.pendingPurchases = group.lots.reduce((sum, lot) => sum + toNumber(lot.pendingPurchase, 0), 0);
+      group.pendingSales = group.lots.reduce((sum, lot) => sum + toNumber(lot.pendingSales, 0), 0);
+      group.pendingCurrentValue = group.lots.reduce((sum, lot) => sum + toNumber(lot.pendingCurrentValue, 0), 0);
+      group.pendingIncome = group.lots.reduce((sum, lot) => sum + toNumber(lot.pendingDividends, 0), 0);
       group.netPurchases = group.totalPurchases - group.totalSales;
       group.netGain = group.totalSales + group.currentValue + group.totalDividends - group.totalPurchases;
       return group;
@@ -3174,9 +3544,11 @@ function addReturnLot(row, transaction, amountUsd) {
   const quantity = getPerformanceQuantity(transaction, amountUsd);
   const cost = Math.abs(amountUsd);
   if (quantity <= 0 || cost <= 0) return;
+  const isPending = transaction.status === "PENDIENTE";
   row.lots.push({
     id: transaction.id,
     date: transaction.tradeDate || transaction.settlementDate || todayIsoDate(),
+    status: transaction.status ?? "REALIZADA",
     quantity,
     originalQuantity: quantity,
     remainingQuantity: quantity,
@@ -3187,7 +3559,9 @@ function addReturnLot(row, transaction, amountUsd) {
     realizedCost: 0,
     usesNotionalQuantity: Boolean(transaction.usesNotionalQuantity),
     fundId: row.fundId,
+    pendingPurchase: isPending ? cost : 0,
     dividends: 0,
+    pendingDividends: 0,
     dividendCashflows: [],
   });
 }
@@ -3206,7 +3580,9 @@ function consumeReturnLots(row, transaction) {
     const soldQuantity = Math.min(quantityToSell, lot.remainingQuantity);
     const quantityShare = soldQuantity / lot.remainingQuantity;
     const costPortion = lot.remainingCost * quantityShare;
+    const pendingPurchasePortion = toNumber(lot.pendingPurchase, 0) * quantityShare;
     const dividendPortion = lot.dividends * quantityShare;
+    const pendingDividendPortion = toNumber(lot.pendingDividends, 0) * quantityShare;
     const dividendCashflows = lot.dividendCashflows.map((flow) => ({
       ...flow,
       amount: flow.amount * quantityShare,
@@ -3217,7 +3593,9 @@ function consumeReturnLots(row, transaction) {
     lot.realizedCost += costPortion;
     lot.remainingQuantity -= soldQuantity;
     lot.remainingCost -= costPortion;
+    lot.pendingPurchase *= remainingShare;
     lot.dividends *= remainingShare;
+    lot.pendingDividends *= remainingShare;
     lot.dividendCashflows = lot.dividendCashflows.map((flow) => ({
       ...flow,
       amount: flow.amount * remainingShare,
@@ -3233,9 +3611,13 @@ function consumeReturnLots(row, transaction) {
       purchasePrice: lot.originalQuantity > 0 ? lot.originalCost / lot.originalQuantity : costPortion / soldQuantity,
       salePrice: soldQuantity > 0 ? proceedsPortion / soldQuantity : 0,
       dividends: dividendPortion,
+      pendingPurchase: pendingPurchasePortion,
+      pendingSales: transaction.status === "PENDIENTE" ? proceedsPortion : 0,
+      pendingDividends: pendingDividendPortion,
       dividendCashflows,
       usesNotionalQuantity: Boolean(transaction.usesNotionalQuantity || lot.usesNotionalQuantity),
       fundId: row.fundId,
+      status: transaction.status ?? "REALIZADA",
       rawType: transaction.rawType,
     });
     quantityToSell -= soldQuantity;
@@ -3255,6 +3637,9 @@ function allocateReturnDividend(row, transaction, amountUsd) {
   eligibleLots.forEach((lot) => {
     const dividendShare = dividend * (lot.remainingQuantity / eligibleQuantity);
     lot.dividends += dividendShare;
+    if (transaction.status === "PENDIENTE") {
+      lot.pendingDividends += dividendShare;
+    }
     lot.dividendCashflows.push({ date: dividendDate, amount: dividendShare });
   });
 }
@@ -3278,6 +3663,9 @@ function aggregateReturnSales(sales) {
     existing.cost += sale.cost;
     existing.proceeds += sale.proceeds;
     existing.dividends += sale.dividends;
+    existing.pendingPurchase += toNumber(sale.pendingPurchase, 0);
+    existing.pendingSales += toNumber(sale.pendingSales, 0);
+    existing.pendingDividends += toNumber(sale.pendingDividends, 0);
     existing.lotCount += 1;
     existing.buyDate = existing.buyDate < sale.buyDate ? existing.buyDate : sale.buyDate;
     existing.purchasePrice = existing.quantity > 0 ? existing.cost / existing.quantity : 0;
@@ -3883,6 +4271,8 @@ window.openHoldingDialog = openHoldingDialog;
 window.deleteHolding = deleteHolding;
 window.openTransactionDialog = openTransactionDialog;
 window.toggleReturnChartUnitMode = toggleReturnChartUnitMode;
+window.toggleReturnPortfolioFund = toggleReturnPortfolioFund;
+window.moveReturnFund = moveReturnFund;
 window.deleteTransaction = deleteTransaction;
 window.openIndicatorDialog = openIndicatorDialog;
 window.moveIndicator = moveIndicator;

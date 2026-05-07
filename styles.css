@@ -509,6 +509,16 @@ textarea:focus {
   min-height: 42px;
 }
 
+.returns-edit-funds-button {
+  min-height: 42px;
+}
+
+.returns-edit-funds-button.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
 .fund-returns-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -526,6 +536,10 @@ textarea:focus {
   padding: 14px;
 }
 
+.fund-return-card.excluded-return-card {
+  opacity: 0.72;
+}
+
 .fund-return-card span,
 .fund-return-card small {
   color: var(--muted);
@@ -538,6 +552,28 @@ textarea:focus {
 
 .fund-return-main {
   text-align: right;
+}
+
+.fund-return-actions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.fund-return-actions .checkbox-label {
+  width: auto;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.fund-order-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.fund-order-actions .icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 
 .fund-return-main strong {
@@ -560,6 +596,11 @@ textarea:focus {
   color: #b8d2ca;
 }
 
+.fund-return-current small {
+  color: #b8d2ca;
+  font-size: 0.78rem;
+}
+
 .fund-return-current strong {
   font-size: 1.45rem;
 }
@@ -571,6 +612,49 @@ textarea:focus {
   gap: 8px 12px;
   border-top: 1px solid var(--line);
   padding-top: 10px;
+}
+
+.fund-evolution-grid {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.fund-evolution-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 14px;
+}
+
+.fund-evolution-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.fund-evolution-header span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.fund-evolution-header h3 {
+  margin-top: 3px;
+}
+
+.fund-evolution-header strong {
+  font-size: 1.1rem;
+}
+
+.fund-evolution-chart-wrap {
+  height: 260px;
+}
+
+.fund-evolution-chart-wrap canvas {
+  width: 100%;
+  height: 260px;
 }
 
 .return-panel {
@@ -746,6 +830,12 @@ textarea:focus {
 
 .negative {
   color: var(--rose);
+}
+
+.pending-chip {
+  border-color: rgba(214, 165, 31, 0.35);
+  background: #fff7d6;
+  color: #795b00;
 }
 
 .gauge-card {
@@ -1223,7 +1313,8 @@ tr:last-child td {
   }
 
   .returns-toolbar,
-  .returns-toolbar label {
+  .returns-toolbar label,
+  .returns-edit-funds-button {
     width: 100%;
   }
 
@@ -1233,6 +1324,14 @@ tr:last-child td {
 
   .fund-return-main {
     text-align: left;
+  }
+
+  .fund-return-actions {
+    justify-items: start;
+  }
+
+  .fund-evolution-header {
+    flex-direction: column;
   }
 
   .allocation-row .icon-button {
