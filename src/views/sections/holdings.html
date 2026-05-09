@@ -9,6 +9,44 @@
       Nueva tenencia
     </button>
   </div>
+  <div class="filters-grid" id="holdingsFilters">
+    <label>
+      Instrumento
+      <input id="holdingInstrumentFilter" type="text" placeholder="Filtrar instrumento" />
+    </label>
+    <label>
+      Plataforma
+      <select id="holdingPlatformFilter"></select>
+    </label>
+    <label>
+      Tipo
+      <select id="holdingTypeFilter"></select>
+    </label>
+    <label>
+      Cantidad
+      <input id="holdingQuantityFilter" type="text" placeholder="Ej. 10 o 10,5" />
+    </label>
+    <label>
+      Asignación
+      <input id="holdingAllocationFilter" type="text" placeholder="Fondo o %" />
+    </label>
+    <label>
+      Tenencia USD
+      <input id="holdingCurrentValueFilter" type="text" placeholder="Monto" />
+    </label>
+    <label>
+      Pendiente por cobrar
+      <input id="holdingPendingValueFilter" type="text" placeholder="Monto" />
+    </label>
+    <label>
+      Total estimado
+      <input id="holdingTotalValueFilter" type="text" placeholder="Monto" />
+    </label>
+    <button class="ghost-button" id="clearHoldingFiltersButton" type="button">
+      <i data-lucide="x-circle"></i>
+      Limpiar filtros
+    </button>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>

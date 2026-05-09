@@ -102,6 +102,10 @@ let state = loadState();
 let charts = [];
 let returnsTypeFilterId = "all";
 let returnFundControlsVisible = false;
+const returnEvolutionFilters = {
+  dateFrom: "",
+  dateTo: "",
+};
 let currentSectionId = "dashboard";
 let mountedSectionId = "";
 let appRouter = null;
@@ -121,11 +125,22 @@ const transactionFilters = {
   amount: "",
   account: "",
 };
+const holdingFilters = {
+  instrument: "",
+  platformId: "",
+  typeId: "",
+  quantity: "",
+  allocation: "",
+  currentValue: "",
+  pendingValue: "",
+  totalValue: "",
+};
 const dashboardChartExclusions = {
   fundIds: new Set(),
   instrumentIds: new Set(),
   platformIds: new Set(),
   typeIds: new Set(),
+  currencyIds: new Set(),
 };
 const returnChartUnitModes = {};
 const dashboardFilters = {
@@ -133,14 +148,21 @@ const dashboardFilters = {
   instrumentIds: new Set(),
   platformIds: new Set(),
   typeIds: new Set(),
+  currencyIds: new Set(),
 };
 
 const noFundFilterId = "__no-fund__";
+const dashboardCurrencies = [
+  { id: "PESOS", name: "PESOS" },
+  { id: "DOLARES", name: "DOLARES" },
+];
+
 const dashboardFilterConfig = {
   fundIds: { label: "Fondo", collection: "funds" },
   instrumentIds: { label: "Instrumento", collection: "instruments" },
   platformIds: { label: "Plataforma", collection: "platforms" },
   typeIds: { label: "Tipo", collection: "instrumentTypes" },
+  currencyIds: { label: "Moneda", collection: "currencies" },
 };
 
 const transactionKindLabels = {
@@ -188,11 +210,18 @@ const standardTransactionTemplateRows = [
   ["2026-04-01", "2026-04-01", "Cuenta propia", "PENDIENTE", "COMPRA", "CASH DOLARES", "LIQUID", "Retiro", "1000", "1", "-1000", "DOLARES", "Liquidez dirigida a fondo", "CASH-0001"],
 ];
 
-const formatUsd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
+const usdNumberFormatter = new Intl.NumberFormat("en-US", {
+  minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
+
+const formatUsd = {
+  format(value) {
+    const numericValue = toNumber(value, 0);
+    const prefix = numericValue < 0 ? "-U$D " : "U$D ";
+    return `${prefix}${usdNumberFormatter.format(Math.abs(numericValue))}`;
+  },
+};
 
 const formatNumber = new Intl.NumberFormat("es-AR", {
   maximumFractionDigits: 6,
@@ -210,9 +239,45 @@ async function initializeApp() {
   bindSettings();
   bindDataPortability();
   bindReset();
+  bindSummaryInfoPanels();
   renderShell();
   await loadManualCotizationsFromServer();
   syncBlueRatesFromBluelytics();
+}
+
+function bindSummaryInfoPanels() {
+  if (document.body.dataset.summaryInfoPanelsBound) return;
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".kpi-info-popover")) return;
+    closeSummaryInfoPanels();
+  });
+  document.body.dataset.summaryInfoPanelsBound = "true";
+}
+
+function toggleSummaryInfo(panelId, event) {
+  event?.stopPropagation();
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  const trigger = event?.currentTarget;
+  const shouldOpen = panel.hidden;
+  if (!shouldOpen) {
+    closeSummaryInfoPanels();
+    return;
+  }
+  closeSummaryInfoPanels();
+  panel.hidden = false;
+  if (trigger) {
+    trigger.setAttribute("aria-expanded", "true");
+  }
+}
+
+function closeSummaryInfoPanels() {
+  document.querySelectorAll(".kpi-info-panel").forEach((panel) => {
+    panel.hidden = true;
+  });
+  document.querySelectorAll(".kpi-info-trigger").forEach((button) => {
+    button.setAttribute("aria-expanded", "false");
+  });
 }
 
 function makeHolding(instrumentId, platformId, typeId, quantity, allocations, pendingReceivableUsd = 0) {
@@ -579,6 +644,9 @@ function updatePresetColorSelection() {
 
 function bindHoldingCrud() {
   document.getElementById("newHoldingButton")?.addEventListener("click", () => openHoldingDialog());
+  bindOnce(document.getElementById("holdingsFilters"), "input", syncHoldingFiltersFromDom, "holdingsFiltersInput");
+  bindOnce(document.getElementById("holdingsFilters"), "change", syncHoldingFiltersFromDom, "holdingsFiltersChange");
+  bindOnce(document.getElementById("clearHoldingFiltersButton"), "click", clearHoldingFilters, "clearHoldingFiltersClick");
   bindOnce(document.getElementById("holdingInstrumentInput"), "change", renderQuotePreview, "holdingInstrumentChange");
   bindOnce(document.getElementById("holdingPlatformInput"), "change", renderQuotePreview, "holdingPlatformChange");
   bindOnce(document.getElementById("holdingTypeInput"), "change", renderQuotePreview, "holdingTypeChange");
@@ -679,6 +747,10 @@ function bindReturns() {
     renderReturns();
     refreshIcons();
   });
+  if (!document.body.dataset.returnsFullscreenBound) {
+    document.addEventListener("fullscreenchange", resizeCharts);
+    document.body.dataset.returnsFullscreenBound = "true";
+  }
 }
 
 function render() {
@@ -908,6 +980,8 @@ function renderDashboardSummaryBand() {
     pendingTotal,
     hasFilters: hasDashboardFilters(),
     portfolioReturn: performanceLookups.portfolio,
+    includedPortfolioFunds: getIncludedPortfolioFundNames(),
+    inflationAdjusted: state.settings.applyInflationAdjustment,
     retirementSnapshot: getDashboardRetirementSnapshot(),
     latestBlueRate,
     formatUsd,
@@ -919,13 +993,20 @@ function renderDashboardSummaryBand() {
 }
 
 function renderHoldings() {
+  renderHoldingFilters();
   const tbody = document.getElementById("holdingsTable");
   if (!state.holdings.length) {
     tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">Todavía no hay tenencias cargadas.</div></td></tr>`;
     return;
   }
 
-  tbody.innerHTML = state.holdings
+  const filteredHoldings = getFilteredHoldings();
+  if (!filteredHoldings.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state">No hay tenencias que coincidan con los filtros actuales.</div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filteredHoldings
     .map((holding) => {
       const instrument = findById("instruments", holding.instrumentId);
       const platform = findById("platforms", holding.platformId);
@@ -955,6 +1036,75 @@ function renderHoldings() {
       `;
     })
     .join("");
+}
+
+function renderHoldingFilters() {
+  fillFilterSelect("holdingPlatformFilter", state.platforms, holdingFilters.platformId, "Todas");
+  fillFilterSelect("holdingTypeFilter", state.instrumentTypes, holdingFilters.typeId, "Todos");
+  document.getElementById("holdingInstrumentFilter").value = holdingFilters.instrument;
+  document.getElementById("holdingQuantityFilter").value = holdingFilters.quantity;
+  document.getElementById("holdingAllocationFilter").value = holdingFilters.allocation;
+  document.getElementById("holdingCurrentValueFilter").value = holdingFilters.currentValue;
+  document.getElementById("holdingPendingValueFilter").value = holdingFilters.pendingValue;
+  document.getElementById("holdingTotalValueFilter").value = holdingFilters.totalValue;
+}
+
+function getFilteredHoldings() {
+  return state.holdings.filter((holding) => holdingMatchesFilters(holding));
+}
+
+function holdingMatchesFilters(holding) {
+  const instrument = findById("instruments", holding.instrumentId);
+  const platform = findById("platforms", holding.platformId);
+  const type = findById("instrumentTypes", holding.typeId);
+  const currentValue = getHoldingUsdValue(holding);
+  const pendingValue = getHoldingPendingUsdValue(holding);
+  const totalValue = currentValue + pendingValue;
+  const allocationLabel = getHoldingAllocationText(holding);
+
+  return (
+    matchesTextFilter(`${instrument?.name ?? ""} ${holding.description ?? ""}`.trim(), holdingFilters.instrument) &&
+    matchesExactFilter(holding.platformId, holdingFilters.platformId) &&
+    matchesExactFilter(holding.typeId, holdingFilters.typeId) &&
+    matchesTextFilter(String(holding.quantity ?? ""), holdingFilters.quantity) &&
+    matchesTextFilter(allocationLabel, holdingFilters.allocation) &&
+    matchesTextFilter(String(currentValue), holdingFilters.currentValue) &&
+    matchesTextFilter(String(pendingValue), holdingFilters.pendingValue) &&
+    matchesTextFilter(String(totalValue), holdingFilters.totalValue) &&
+    matchesTextFilter(platform?.name, "") &&
+    matchesTextFilter(type?.name, "")
+  );
+}
+
+function getHoldingAllocationText(holding) {
+  if (!holding.allocations?.length) return "Sin Fondo";
+  return holding.allocations
+    .map((allocation) => {
+      const fund = findById("funds", allocation.fundId);
+      return `${fund?.name ?? "Fondo"} ${toNumber(allocation.percent, 0)}`;
+    })
+    .join(" ");
+}
+
+function syncHoldingFiltersFromDom() {
+  holdingFilters.instrument = document.getElementById("holdingInstrumentFilter")?.value.trim() ?? "";
+  holdingFilters.platformId = document.getElementById("holdingPlatformFilter")?.value ?? "";
+  holdingFilters.typeId = document.getElementById("holdingTypeFilter")?.value ?? "";
+  holdingFilters.quantity = document.getElementById("holdingQuantityFilter")?.value.trim() ?? "";
+  holdingFilters.allocation = document.getElementById("holdingAllocationFilter")?.value.trim() ?? "";
+  holdingFilters.currentValue = document.getElementById("holdingCurrentValueFilter")?.value.trim() ?? "";
+  holdingFilters.pendingValue = document.getElementById("holdingPendingValueFilter")?.value.trim() ?? "";
+  holdingFilters.totalValue = document.getElementById("holdingTotalValueFilter")?.value.trim() ?? "";
+  renderHoldings();
+  refreshIcons();
+}
+
+function clearHoldingFilters() {
+  Object.keys(holdingFilters).forEach((key) => {
+    holdingFilters[key] = "";
+  });
+  renderHoldings();
+  refreshIcons();
 }
 
 function renderTransactions() {
@@ -1286,6 +1436,10 @@ function isFundIncludedInPortfolio(fundId) {
   return !state.settings.returnPortfolioExcludedFundIds.includes(fundId);
 }
 
+function getIncludedPortfolioFundNames() {
+  return state.funds.filter((fund) => isFundIncludedInPortfolio(fund.id)).map((fund) => fund.name);
+}
+
 function toggleReturnPortfolioFund(fundId, included) {
   const excludedIds = new Set(state.settings.returnPortfolioExcludedFundIds ?? []);
   if (included) {
@@ -1331,6 +1485,7 @@ function calculatePortfolioReturnFromFundRows(rows) {
     xirr: null,
     cashflows: [],
     instrumentIds: new Set(),
+    includedFundNames: includedRows.map((fundRow) => fundRow.fundName),
   };
 
   includedRows.forEach((fundRow) => {
@@ -1621,13 +1776,31 @@ function renderFundEvolutionCharts(fundRows) {
 
   grid.innerHTML = seriesRows
     .map((row, index) => `
-      <article class="fund-evolution-card">
+      <article class="fund-evolution-card" id="fundEvolutionCard${index}">
         <div class="fund-evolution-header">
           <div>
             <span>Evolución de tenencia</span>
             <h3>${escapeHtml(row.fundName)}</h3>
           </div>
-          <strong>${formatUsd.format(row.currentValue)}</strong>
+          <div class="fund-evolution-actions">
+            <div class="fund-evolution-date-filters">
+              <label>
+                Desde
+                <input type="date" value="${escapeHtml(returnEvolutionFilters.dateFrom)}" onchange="setReturnEvolutionFilter('dateFrom', this.value)" />
+              </label>
+              <label>
+                Hasta
+                <input type="date" value="${escapeHtml(returnEvolutionFilters.dateTo)}" onchange="setReturnEvolutionFilter('dateTo', this.value)" />
+              </label>
+            </div>
+            <div class="fund-evolution-meta">
+              <strong>${formatUsd.format(row.currentValue)}</strong>
+              <button class="ghost-button fund-evolution-expand-button" type="button" onclick="toggleFundEvolutionFullscreen('fundEvolutionCard${index}')">
+                <i data-lucide="expand"></i>
+                Pantalla completa
+              </button>
+            </div>
+          </div>
         </div>
         <div class="fund-evolution-chart-wrap">
           <canvas id="fundEvolutionChart${index}"></canvas>
@@ -1678,7 +1851,9 @@ function buildFundEvolutionSeries(fundRows) {
   });
 
   const firstDate = relevantTransactions[0]?.tradeDate || relevantTransactions[0]?.settlementDate || todayIsoDate();
-  const lastDate = todayIsoDate();
+  const rangeStart = returnEvolutionFilters.dateFrom && returnEvolutionFilters.dateFrom > firstDate ? returnEvolutionFilters.dateFrom : firstDate;
+  const lastDate = returnEvolutionFilters.dateTo && returnEvolutionFilters.dateTo < todayIsoDate() ? returnEvolutionFilters.dateTo : todayIsoDate();
+  if (rangeStart > lastDate) return [];
   const pointsByFund = new Map(fundRows.map((row) => [row.fundId, []]));
 
   for (let date = firstDate; date <= lastDate; date = addDaysIso(date, 1)) {
@@ -1697,7 +1872,8 @@ function buildFundEvolutionSeries(fundRows) {
       const accumulated = getFundMarketValueOnDate(row.fundId, date, positionsByFund, cashByFund);
       const points = pointsByFund.get(row.fundId);
       const previousValue = points[points.length - 1]?.accumulated ?? 0;
-      if (!points.length && accumulated <= 0 && !movements.length) return;
+      if (date < rangeStart) return;
+      if (!points.length && accumulated === 0 && !movements.length) return;
       points.push({
         date,
         value: accumulated,
@@ -1716,7 +1892,7 @@ function buildFundEvolutionSeries(fundRows) {
     .map((row) => {
       const points = pointsByFund.get(row.fundId) ?? [];
       const today = todayIsoDate();
-      if (row.currentValue > 0 && (!points.length || points[points.length - 1].date !== today || Math.abs(points[points.length - 1].accumulated - row.currentValue) > 0.01)) {
+      if ((!points.length || points[points.length - 1].date !== today || Math.abs(points[points.length - 1].accumulated - row.currentValue) > 0.01) && (!returnEvolutionFilters.dateTo || returnEvolutionFilters.dateTo >= today)) {
         if (points.length && points[points.length - 1].date === today) {
           const previousValue = points[points.length - 2]?.accumulated ?? 0;
           points[points.length - 1] = {
@@ -1785,11 +1961,34 @@ function getFundSharesForTransaction(transaction) {
 }
 
 function getFundEvolutionQuantityDelta(transaction) {
-  const amountUsd = convertTransactionAmountToUsd(transaction);
-  const quantity = getPerformanceQuantity(transaction, amountUsd);
+  const quantity = getFundEvolutionTransactionQuantity(transaction);
   if (transaction.kind === "BUY" || transaction.kind === "CAUCION_OPEN") return quantity;
   if (transaction.kind === "SELL" || transaction.kind === "CAUCION_CLOSE") return -quantity;
   return 0;
+}
+
+function getFundEvolutionTransactionQuantity(transaction) {
+  const explicitQuantity = Math.abs(toNumber(transaction.quantity, 0));
+  if (explicitQuantity > 0) return normalizeFundEvolutionQuantity(transaction, explicitQuantity);
+  if (!transaction.usesNotionalQuantity) return 0;
+  const amount = Math.abs(toNumber(transaction.amount, 0));
+  const price = Math.abs(toNumber(transaction.price, 0));
+  if (amount > 0 && price > 0) return normalizeFundEvolutionQuantity(transaction, amount / price);
+  const amountUsd = Math.abs(convertTransactionAmountToUsd(transaction));
+  return normalizeFundEvolutionQuantity(transaction, amountUsd);
+}
+
+function normalizeFundEvolutionQuantity(transaction, quantity) {
+  const numericQuantity = Math.abs(toNumber(quantity, 0));
+  if (numericQuantity <= 0) return 0;
+  return isBmbBondNominalTransaction(transaction) ? numericQuantity / 100 : numericQuantity;
+}
+
+function isBmbBondNominalTransaction(transaction) {
+  if (!transaction || !["bmb", "bmb-simple"].includes(transaction.sourceAdapter)) return false;
+  const type = findById("instrumentTypes", transaction.typeId);
+  const normalizedType = normalizeHeader(type?.name ?? "");
+  return normalizedType.includes("bono") || normalizedType === "on";
 }
 
 function getFundEvolutionCashDelta(transaction) {
@@ -1898,6 +2097,27 @@ function createFundEvolutionChart(canvasId, row) {
       },
     }),
   );
+}
+
+function setReturnEvolutionFilter(key, value) {
+  if (!(key in returnEvolutionFilters)) return;
+  returnEvolutionFilters[key] = value || "";
+  renderReturns();
+  refreshIcons();
+}
+
+async function toggleFundEvolutionFullscreen(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  if (document.fullscreenElement === card) {
+    await document.exitFullscreen();
+    return;
+  }
+  await card.requestFullscreen?.();
+}
+
+function resizeCharts() {
+  charts.forEach((chart) => chart.resize?.());
 }
 
 function getReturnEventCurrentUnitValue(event) {
@@ -2128,7 +2348,7 @@ function getActiveDashboardFilters() {
 function getDashboardFilterValueLabel(filterKey, id) {
   if (filterKey === "fundIds" && id === noFundFilterId) return "Sin Fondo";
   const collectionName = dashboardFilterConfig[filterKey].collection;
-  return findById(collectionName, id)?.name ?? "Sin registro";
+  return getDashboardCollection(collectionName).find((item) => item.id === id)?.name ?? "Sin registro";
 }
 
 function hasDashboardFilters() {
@@ -2201,8 +2421,10 @@ function renderCharts(performanceLookups = getDashboardPerformanceLookups()) {
     aggregateByFund,
     aggregateBy,
     dashboardFilters,
+    dashboardChartExclusions,
     performanceByFundId: performanceLookups.fundById,
     performanceByInstrumentId: performanceLookups.instrumentById,
+    formatUsd,
   });
 
   chartGrid.innerHTML = specs
@@ -2212,6 +2434,7 @@ function renderCharts(performanceLookups = getDashboardPerformanceLookups()) {
           <div class="chart-section-header">
             <h3>${spec.title}</h3>
             <div class="chart-section-actions">
+              <span class="chart-visible-total">${spec.visibleTotalLabel}</span>
               ${spec.activeCount ? `<span class="filter-count">${spec.activeCount}</span>` : ""}
               ${dashboardChartExclusions[spec.filterKey].size ? `<button class="ghost-button chart-reset-button" type="button" data-chart-reset="${spec.filterKey}"><i data-lucide="rotate-ccw"></i>Reiniciar gráfico</button>` : ""}
             </div>
@@ -3891,6 +4114,7 @@ function makeHoldingSlice(holding, fundId, currentValue, pendingValue, share) {
   return {
     holding,
     fundId,
+    currencyId: getHoldingCurrencyId(holding),
     current,
     pending,
     value: current + pending,
@@ -3902,7 +4126,8 @@ function sliceMatchesDashboardFilters(slice, ignoredFilterKey = "") {
     filterSetMatches("fundIds", slice.fundId, ignoredFilterKey) &&
     filterSetMatches("instrumentIds", slice.holding.instrumentId, ignoredFilterKey) &&
     filterSetMatches("platformIds", slice.holding.platformId, ignoredFilterKey) &&
-    filterSetMatches("typeIds", slice.holding.typeId, ignoredFilterKey)
+    filterSetMatches("typeIds", slice.holding.typeId, ignoredFilterKey) &&
+    filterSetMatches("currencyIds", slice.currencyId, ignoredFilterKey)
   );
 }
 
@@ -3915,19 +4140,31 @@ function filterSetMatches(filterKey, value, ignoredFilterKey) {
 function aggregateBy(collectionName, holdingKey, ignoredFilterKey = "") {
   const activeIds = dashboardFilters[ignoredFilterKey] ?? new Set();
   const totals = new Map(
-    state[collectionName].map((item) => [
+    getDashboardCollection(collectionName).map((item) => [
       item.id,
       { id: item.id, label: item.name, current: 0, pending: 0, value: 0, color: item.color || "", isActive: activeIds.has(item.id), isDimmed: activeIds.size > 0 && !activeIds.has(item.id) },
     ]),
   );
   getFilteredHoldingSlices(ignoredFilterKey).forEach((slice) => {
-    const bucket = totals.get(slice.holding[holdingKey]);
+    const bucket = totals.get(holdingKey === "currencyId" ? slice.currencyId : slice.holding[holdingKey]);
     if (!bucket) return;
     bucket.current += slice.current;
     bucket.pending += slice.pending;
     bucket.value = bucket.current + bucket.pending;
   });
   return normalizeSeries([...totals.values()]);
+}
+
+function getDashboardCollection(collectionName) {
+  if (collectionName === "currencies") return dashboardCurrencies;
+  return state[collectionName] ?? [];
+}
+
+function getHoldingCurrencyId(holding) {
+  const type = findById("instrumentTypes", holding.typeId);
+  const instrument = findById("instruments", holding.instrumentId);
+  const pricing = getPricing(instrument, type, holding.platformId);
+  return pricing.currency === "PESOS" ? "PESOS" : "DOLARES";
 }
 
 function aggregateByFund(ignoredFilterKey = "") {
@@ -4019,7 +4256,7 @@ function normalizeSeries(series) {
       pending: toNumber(item.pending, 0),
       value: toNumber(item.value, 0),
     }))
-    .filter((item) => item.value > 0)
+    .filter((item) => item.value !== 0 || item.current !== 0 || item.pending !== 0 || item.isActive)
     .sort((a, b) => b.value - a.value);
 }
 
@@ -5216,9 +5453,13 @@ window.deleteEntity = deleteEntity;
 window.openHoldingDialog = openHoldingDialog;
 window.deleteHolding = deleteHolding;
 window.openTransactionDialog = openTransactionDialog;
+window.toggleSummaryInfo = toggleSummaryInfo;
+window.closeSummaryInfoPanels = closeSummaryInfoPanels;
 window.toggleReturnChartUnitMode = toggleReturnChartUnitMode;
 window.toggleReturnPortfolioFund = toggleReturnPortfolioFund;
 window.moveReturnFund = moveReturnFund;
+window.setReturnEvolutionFilter = setReturnEvolutionFilter;
+window.toggleFundEvolutionFullscreen = toggleFundEvolutionFullscreen;
 window.deleteTransaction = deleteTransaction;
 window.openIndicatorDialog = openIndicatorDialog;
 window.moveIndicator = moveIndicator;

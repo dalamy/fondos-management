@@ -59,7 +59,7 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">Cartera</p>
-            <h1>Resúmen</h1>
+            <h1>Resumen</h1>
           </div>
           <div class="topbar-actions">
             <input id="importDataInput" type="file" accept="application/json,.json" hidden />
@@ -78,19 +78,47 @@
         </header>
 
         <section class="kpi-band" id="dashboardSummaryBand" aria-label="Resumen de cartera">
-          <div class="kpi primary">
-            <span>Tenencia estimada</span>
-            <strong id="globalTotal">$0</strong>
+          <div class="kpi primary" id="globalTotalCard">
+            <span id="globalTotalLabel">Tenencia estimada</span>
+            <strong id="globalTotal">U$D 0</strong>
             <small id="globalTotalMeta">Calculada en USD</small>
           </div>
-          <div class="kpi">
-            <span>Rendimiento general</span>
+          <div class="kpi" id="portfolioReturnCard">
+            <div class="kpi-info-popover">
+              <button class="kpi-info-trigger" type="button" aria-label="Ver detalle de rendimiento general" aria-expanded="false" onclick="toggleSummaryInfo('portfolioReturnInfoPanel', event)">
+                <i data-lucide="info"></i>
+              </button>
+              <div class="kpi-info-panel" id="portfolioReturnInfoPanel" hidden>
+                <div class="kpi-info-panel-header">
+                  <strong>Rendimiento general</strong>
+                  <button class="icon-button kpi-info-close" type="button" aria-label="Cerrar detalle" onclick="closeSummaryInfoPanels()">
+                    <i data-lucide="x"></i>
+                  </button>
+                </div>
+                <div id="portfolioReturnInfoContent">Sin información disponible.</div>
+              </div>
+            </div>
+            <span id="portfolioReturnLabel">Rendimiento general</span>
             <strong id="portfolioReturnValue">s/d</strong>
             <small id="portfolioReturnMeta">TIR s/d</small>
           </div>
-          <div class="kpi">
+          <div class="kpi" id="dashboardRetirementCard">
+            <div class="kpi-info-popover">
+              <button class="kpi-info-trigger" type="button" aria-label="Ver detalle de estimated retirement salary" aria-expanded="false" onclick="toggleSummaryInfo('dashboardRetirementInfoPanel', event)">
+                <i data-lucide="info"></i>
+              </button>
+              <div class="kpi-info-panel" id="dashboardRetirementInfoPanel" hidden>
+                <div class="kpi-info-panel-header">
+                  <strong>Estimated Retirement Salary</strong>
+                  <button class="icon-button kpi-info-close" type="button" aria-label="Cerrar detalle" onclick="closeSummaryInfoPanels()">
+                    <i data-lucide="x"></i>
+                  </button>
+                </div>
+                <div id="dashboardRetirementInfoContent">Sin información disponible.</div>
+              </div>
+            </div>
             <span>Estimated Retirement Salary</span>
-            <strong id="dashboardRetirementValue">$0</strong>
+            <strong id="dashboardRetirementValue">U$D 0</strong>
             <small id="dashboardRetirementMeta">Sin fondo configurado</small>
           </div>
           <div class="kpi config-kpi">

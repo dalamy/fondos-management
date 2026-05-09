@@ -212,6 +212,7 @@ h3 {
 }
 
 .kpi {
+  position: relative;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -234,6 +235,99 @@ h3 {
   margin: 8px 0 4px;
   font-size: 1.85rem;
   line-height: 1;
+}
+
+.kpi-info-popover {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.kpi-info-trigger {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--accent-strong);
+  cursor: pointer;
+  padding: 0;
+}
+
+.kpi-info-panel {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 8px;
+  width: min(300px, calc(100vw - 40px));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(16, 35, 31, 0.16);
+  padding: 12px;
+}
+
+.kpi-info-panel[hidden] {
+  display: none !important;
+}
+
+.kpi-info-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kpi-info-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.kpi-info-panel strong {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.kpi-info-close {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+
+.kpi-info-close svg {
+  width: 15px;
+  height: 15px;
+}
+
+.kpi-info-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filters-grid label {
+  display: grid;
+  gap: 6px;
+  color: #424c47;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.filters-grid > button {
+  align-self: end;
+  min-height: 42px;
 }
 
 .inline-input {
@@ -328,6 +422,12 @@ textarea:focus {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+.chart-visible-total {
+  color: var(--accent-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .chart-section h3 {
@@ -673,6 +773,26 @@ textarea:focus {
   padding: 14px;
 }
 
+.fund-evolution-card:fullscreen {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  border-radius: 0;
+  padding: 24px;
+  background: #f7fbf8;
+}
+
+.fund-evolution-card:fullscreen .fund-evolution-chart-wrap {
+  height: calc(100vh - 170px);
+}
+
+.fund-evolution-card:fullscreen .fund-evolution-chart-wrap canvas {
+  height: calc(100vh - 190px);
+}
+
 .fund-evolution-header {
   display: flex;
   align-items: flex-start;
@@ -692,6 +812,40 @@ textarea:focus {
 
 .fund-evolution-header strong {
   font-size: 1.1rem;
+}
+
+.fund-evolution-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.fund-evolution-date-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fund-evolution-date-filters label {
+  display: grid;
+  gap: 4px;
+  min-width: 132px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.fund-evolution-meta {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.fund-evolution-expand-button {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.78rem;
 }
 
 .fund-evolution-chart-wrap {
