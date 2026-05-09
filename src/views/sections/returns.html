@@ -1,0 +1,25 @@
+<section class="section active" id="returnsSection">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Análisis temporal</p>
+      <h2>Rendimientos</h2>
+    </div>
+  </div>
+  <div class="returns-toolbar">
+    <label>
+      Tipo de instrumento
+      <select id="returnsTypeFilterInput"></select>
+    </label>
+    <label class="checkbox-label returns-inflation-toggle">
+      <input id="inflationAdjustmentInput" type="checkbox" />
+      Ajustar movimientos por inflación
+    </label>
+    <button class="secondary-button returns-edit-funds-button" id="toggleReturnFundControlsButton" type="button">
+      <i data-lucide="sliders-horizontal"></i>
+      Editar fondos
+    </button>
+  </div>
+  <div class="fund-returns-grid" id="fundReturnsGrid"></div>
+  <div class="fund-evolution-grid" id="fundEvolutionGrid"></div>
+  <div class="returns-grid" id="returnsGrid"></div>
+</section>

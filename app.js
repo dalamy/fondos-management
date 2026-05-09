@@ -1,6 +1,14 @@
+import { createRouter } from "./src/app/router.js";
+import { buildDashboardChartSpecs, getDashboardPerformanceTooltipLines, renderDashboardSummary } from "./src/app/sections/dashboard-view.js";
+import { getSectionById } from "./src/app/sections/index.js";
+import { bindOnce } from "./src/app/core/dom.js";
+import { loadStoredState, saveStoredState } from "./src/app/core/store.js";
+import { loadSectionTemplate as loadSectionTemplateIntoHost } from "./src/app/core/view-loader.js";
+
 const STORAGE_KEY = "fondos-management-state-v2";
 const BLUE_RATES_START_DATE = "2024-01-01";
 const BLUELYTICS_EVOLUTION_URL = "https://api.bluelytics.com.ar/v2/evolution.json";
+const MANUAL_COTIZATIONS_API_URL = "/api/cotizations";
 const seedInflationRates = [
   { month: "2024-01-01", usd: 0, ars: 20.6 },
   { month: "2024-02-01", usd: -0.1, ars: 13.2 },
@@ -48,9 +56,15 @@ const seedState = {
       lastError: "",
     },
   },
+  marketData: {
+    provider: "manual-file",
+    prices: {},
+    lastSyncAt: "",
+    lastError: "",
+  },
   kpis: {
     retirementSalary: {
-      fundId: "fund-general",
+      fundIds: ["fund-general"],
       annualPercent: 3.5,
     },
     indicators: [
@@ -87,6 +101,31 @@ let state = loadState();
 let charts = [];
 let returnsTypeFilterId = "all";
 let returnFundControlsVisible = false;
+let currentSectionId = "dashboard";
+let mountedSectionId = "";
+let appRouter = null;
+const dashboardBarDatasetVisibility = { current: true, pending: true };
+const transactionFilters = {
+  tradeDateFrom: "",
+  tradeDateTo: "",
+  settlementDateFrom: "",
+  settlementDateTo: "",
+  platformId: "",
+  fundId: "",
+  status: "",
+  kind: "",
+  instrument: "",
+  quantity: "",
+  price: "",
+  amount: "",
+  account: "",
+};
+const dashboardChartExclusions = {
+  fundIds: new Set(),
+  instrumentIds: new Set(),
+  platformIds: new Set(),
+  typeIds: new Set(),
+};
 const returnChartUnitModes = {};
 const dashboardFilters = {
   fundIds: new Set(),
@@ -162,18 +201,18 @@ const colors = ["#0f766e", "#c58b1a", "#2f5fb3", "#b83b5e", "#6f42c1", "#0d9488"
 const presetEntityColors = ["#0f766e", "#2563eb", "#7c3aed", "#db2777", "#dc2626", "#ea580c", "#d6a51f", "#16a34a", "#0891b2", "#475569"];
 
 document.addEventListener("DOMContentLoaded", () => {
-  bindNavigation();
+  void initializeApp();
+});
+
+async function initializeApp() {
+  await bindNavigation();
   bindSettings();
-  bindEntityCrud();
-  bindHoldingCrud();
-  bindKpis();
-  bindTransactions();
-  bindReturns();
   bindDataPortability();
   bindReset();
-  render();
+  renderShell();
+  await loadManualCotizationsFromServer();
   syncBlueRatesFromBluelytics();
-});
+}
 
 function makeHolding(instrumentId, platformId, typeId, quantity, allocations, pendingReceivableUsd = 0) {
   return {
@@ -189,27 +228,7 @@ function makeHolding(instrumentId, platformId, typeId, quantity, allocations, pe
 }
 
 function loadState() {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    const initialState = normalizeState(structuredClone(seedState));
-    persistState(initialState);
-    return initialState;
-  }
-
-  try {
-    const parsed = JSON.parse(stored);
-    const normalized = normalizeState({
-      ...structuredClone(seedState),
-      ...parsed,
-      settings: { ...seedState.settings, ...(parsed.settings ?? {}) },
-    });
-    persistState(normalized);
-    return normalized;
-  } catch {
-    const initialState = normalizeState(structuredClone(seedState));
-    persistState(initialState);
-    return initialState;
-  }
+  return loadStoredState(STORAGE_KEY, seedState, normalizeState);
 }
 
 function normalizeState(nextState) {
@@ -217,6 +236,7 @@ function normalizeState(nextState) {
   nextState.settings.returnFundOrder = Array.isArray(nextState.settings.returnFundOrder) ? nextState.settings.returnFundOrder : [];
   nextState.settings.returnPortfolioExcludedFundIds = Array.isArray(nextState.settings.returnPortfolioExcludedFundIds) ? nextState.settings.returnPortfolioExcludedFundIds : [];
   nextState.fxRates = normalizeFxRates(nextState.fxRates);
+  nextState.marketData = normalizeMarketData(nextState.marketData);
   nextState.inflation = {
     rates: normalizeInflationRates(nextState.inflation?.rates?.length ? nextState.inflation.rates : seedInflationRates),
   };
@@ -224,6 +244,7 @@ function normalizeState(nextState) {
     retirementSalary: {
       ...seedState.kpis.retirementSalary,
       ...(nextState.kpis?.retirementSalary ?? {}),
+      fundIds: normalizeRetirementFundIds(nextState.kpis?.retirementSalary),
     },
     indicators: (nextState.kpis?.indicators ?? []).map((indicator) => ({
       id: indicator.id ?? crypto.randomUUID(),
@@ -264,6 +285,46 @@ function normalizeFxRates(fxRates = {}) {
   };
 }
 
+function normalizeMarketData(marketData = {}) {
+  const prices = {};
+  Object.entries(marketData.prices ?? {}).forEach(([instrumentId, entry]) => {
+    prices[instrumentId] = {
+      provider: entry.provider ?? "manual-file",
+      symbol: entry.symbol ?? "",
+      currency: normalizeCurrency(entry.currency),
+      sourceFile: entry.sourceFile ?? "",
+      rates: normalizeHistoricalPriceRows(entry.rates ?? entry.prices ?? []),
+      lastSyncAt: entry.lastSyncAt ?? "",
+      lastError: entry.lastError ?? "",
+    };
+  });
+  return {
+    ...seedState.marketData,
+    ...marketData,
+    prices,
+    lastSyncAt: marketData.lastSyncAt ?? "",
+    lastError: marketData.lastError ?? "",
+  };
+}
+
+function normalizeHistoricalPriceRows(rows) {
+  const byDate = new Map();
+  rows.forEach((row) => {
+    const date = String(row.date ?? "").slice(0, 10);
+    const close = toNumber(row.close ?? row.price, 0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || close <= 0) return;
+    byDate.set(date, { date, close });
+  });
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function normalizeCurrency(value) {
+  const normalized = normalizeHeader(value).replaceAll(" ", "");
+  if (normalized.includes("peso") || normalized === "ars") return "PESOS";
+  if (normalized.includes("dolar") || normalized.includes("usd") || normalized.includes("us")) return "DOLARES";
+  return "DOLARES";
+}
+
 function normalizeBlueRates(rates) {
   const byDate = new Map();
   rates.forEach((rate) => {
@@ -286,12 +347,12 @@ function normalizeBlueRates(rates) {
 function normalizeInflationRates(rates) {
   const byMonth = new Map();
   rates.forEach((rate) => {
-    const month = getMonthStartIso(rate.month ?? rate.Fecha ?? rate.fecha ?? rate.date);
+    const month = getMonthStartIso(rate.month ?? rate.MonthYear ?? rate.monthYear ?? rate.Fecha ?? rate.fecha ?? rate.date);
     if (!month) return;
     byMonth.set(month, {
       month,
-      usd: toNumber(rate.usd ?? rate["Inflation Dolar"] ?? rate.inflationDolar, 0),
-      ars: toNumber(rate.ars ?? rate["Inflation Pesos"] ?? rate.inflationPesos, 0),
+      usd: toNumber(rate.usd ?? rate.InflationDollar ?? rate.inflationDollar ?? rate["Inflation Dolar"] ?? rate.inflationDolar, 0),
+      ars: toNumber(rate.ars ?? rate.InflationPesos ?? rate.inflationPesos ?? rate["Inflation Pesos"] ?? rate.inflationPesos, 0),
     });
   });
   return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
@@ -361,27 +422,22 @@ function saveState() {
 }
 
 function persistState(nextState) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+  saveStoredState(STORAGE_KEY, nextState);
 }
 
 function bindNavigation() {
-  document.querySelectorAll(".nav-item").forEach((button) => {
-    button.addEventListener("click", () => {
-      document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
-      document.querySelectorAll(".section").forEach((section) => section.classList.remove("active"));
-      button.classList.add("active");
-      document.getElementById(`${button.dataset.section}Section`).classList.add("active");
-    });
+  appRouter = createRouter({
+    async onSectionChange(section) {
+      currentSectionId = section.id;
+      await mountSection(section);
+      render();
+    },
   });
+  return appRouter.start();
 }
 
 function bindSettings() {
-  const input = document.getElementById("arsUsdInput");
-  input.addEventListener("change", () => {
-    state.settings.arsUsd = toNumber(input.value, seedState.settings.arsUsd);
-    saveState();
-    render();
-  });
+  // El dólar blue se actualiza automáticamente desde Bluelytics.
 }
 
 function bindDataPortability() {
@@ -470,26 +526,31 @@ function validateImportedState(importedState) {
 
 function bindEntityCrud() {
   document.querySelectorAll(".add-entity").forEach((button) => {
-    button.addEventListener("click", () => openEntityDialog(button.closest(".master-panel").dataset.entity));
+    button.addEventListener("click", () => openEntityDialog(button.dataset.entity));
+  });
+  document.querySelectorAll(".master-section-actions button").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
   });
 
   renderPresetColorButtons();
-  document.getElementById("entityUsesPlatformQuotesInput").addEventListener("change", () => renderPlatformQuotesEditor());
-  document.getElementById("clearEntityColorButton").addEventListener("click", () => {
+  bindOnce(document.getElementById("entityUsesPlatformQuotesInput"), "change", () => renderPlatformQuotesEditor(), "entityUsesPlatformQuotesChange");
+  bindOnce(document.getElementById("clearEntityColorButton"), "click", () => {
     document.getElementById("entityColorInput").value = "#000000";
     document.getElementById("entityColorInput").dataset.empty = "true";
     updatePresetColorSelection();
-  });
-  document.getElementById("entityColorInput").addEventListener("input", (event) => {
+  }, "clearEntityColorButtonClick");
+  bindOnce(document.getElementById("entityColorInput"), "input", (event) => {
     event.currentTarget.dataset.empty = "false";
     updatePresetColorSelection();
-  });
+  }, "entityColorInputInput");
 
-  document.getElementById("entityForm").addEventListener("submit", (event) => {
+  bindOnce(document.getElementById("entityForm"), "submit", (event) => {
     if (event.submitter?.value === "cancel") return;
     event.preventDefault();
     saveEntity();
-  });
+  }, "entityFormSubmit");
 }
 
 function renderPresetColorButtons() {
@@ -516,47 +577,89 @@ function updatePresetColorSelection() {
 }
 
 function bindHoldingCrud() {
-  document.getElementById("newHoldingButton").addEventListener("click", () => openHoldingDialog());
-  document.getElementById("holdingInstrumentInput").addEventListener("change", renderQuotePreview);
-  document.getElementById("holdingPlatformInput").addEventListener("change", renderQuotePreview);
-  document.getElementById("holdingTypeInput").addEventListener("change", renderQuotePreview);
-  document.getElementById("holdingQuantityInput").addEventListener("input", renderQuotePreview);
-  document.getElementById("holdingPendingInput").addEventListener("input", renderQuotePreview);
-  document.getElementById("addAllocationButton").addEventListener("click", () => addAllocationRow());
-  document.getElementById("holdingForm").addEventListener("submit", (event) => {
+  document.getElementById("newHoldingButton")?.addEventListener("click", () => openHoldingDialog());
+  bindOnce(document.getElementById("holdingInstrumentInput"), "change", renderQuotePreview, "holdingInstrumentChange");
+  bindOnce(document.getElementById("holdingPlatformInput"), "change", renderQuotePreview, "holdingPlatformChange");
+  bindOnce(document.getElementById("holdingTypeInput"), "change", renderQuotePreview, "holdingTypeChange");
+  bindOnce(document.getElementById("holdingQuantityInput"), "input", renderQuotePreview, "holdingQuantityInput");
+  bindOnce(document.getElementById("holdingPendingInput"), "input", renderQuotePreview, "holdingPendingInput");
+  bindOnce(document.getElementById("addAllocationButton"), "click", () => addAllocationRow(), "addAllocationClick");
+  bindOnce(document.getElementById("holdingForm"), "submit", (event) => {
     if (event.submitter?.value === "cancel") return;
     event.preventDefault();
     saveHolding();
-  });
+  }, "holdingFormSubmit");
 }
 
 function bindKpis() {
-  document.getElementById("retirementFundInput").addEventListener("change", saveRetirementSettings);
-  document.getElementById("retirementPercentInput").addEventListener("change", saveRetirementSettings);
-  document.getElementById("newIndicatorButton").addEventListener("click", () => openIndicatorDialog());
-  document.getElementById("indicatorForm").addEventListener("submit", (event) => {
+  document.getElementById("retirementFundInput")?.addEventListener("change", saveRetirementSettings);
+  document.getElementById("retirementPercentInput")?.addEventListener("change", saveRetirementSettings);
+  bindOnce(document.getElementById("indicatorForm"), "submit", (event) => {
     if (event.submitter?.value === "cancel") return;
     event.preventDefault();
     saveIndicator();
-  });
+  }, "indicatorFormSubmit");
 }
 
 function bindTransactions() {
-  document.getElementById("newTransactionButton").addEventListener("click", () => openTransactionDialog());
-  document.getElementById("importTransactionsButton").addEventListener("click", importTransactions);
-  document.getElementById("downloadTransactionTemplateButton").addEventListener("click", downloadStandardTransactionTemplate);
-  document.getElementById("clearTransactionsButton").addEventListener("click", clearTransactions);
-  document.getElementById("transactionFileInput").addEventListener("change", (event) => {
+  document.getElementById("newTransactionButton")?.addEventListener("click", () => openTransactionDialog());
+  document.getElementById("importTransactionsButton")?.addEventListener("click", importTransactions);
+  document.getElementById("downloadTransactionTemplateButton")?.addEventListener("click", downloadStandardTransactionTemplate);
+  document.getElementById("clearTransactionsButton")?.addEventListener("click", clearTransactions);
+  bindOnce(document.getElementById("transactionsFilters"), "input", syncTransactionFiltersFromDom, "transactionsFiltersInput");
+  bindOnce(document.getElementById("transactionsFilters"), "change", syncTransactionFiltersFromDom, "transactionsFiltersChange");
+  bindOnce(document.getElementById("clearTransactionFiltersButton"), "click", clearTransactionFilters, "clearTransactionFiltersClick");
+  document.getElementById("transactionFileInput")?.addEventListener("change", (event) => {
     const file = event.target.files?.[0];
     document.getElementById("transactionImportStatus").textContent = file
       ? `${file.name} listo para importar.`
       : "Elegí una plataforma y cargá un archivo de movimientos.";
   });
-  document.getElementById("transactionForm").addEventListener("submit", (event) => {
+  bindOnce(document.getElementById("transactionForm"), "submit", (event) => {
     if (event.submitter?.value === "cancel") return;
     event.preventDefault();
     saveTransaction();
+  }, "transactionFormSubmit");
+}
+
+function bindCotizations() {
+  document.getElementById("openCotizationsDialogButton")?.addEventListener("click", () => openCotizationsDialog());
+  document.getElementById("clearCotizationsButton")?.addEventListener("click", () => {
+    void clearAllManualCotizations();
   });
+  bindOnce(document.getElementById("cotizationsInstrumentInput"), "change", syncCotizationsCurrencyFromInstrument, "cotizationsInstrumentChange");
+  bindOnce(document.getElementById("cotizationsFileInput"), "change", (event) => {
+    const file = event.target.files?.[0];
+    document.getElementById("cotizationsImportStatus").textContent = file
+      ? `${file.name} listo para importar.`
+      : "Seleccioná un instrumento, una moneda y un archivo Excel con las columnas Fecha Cotización y Cierre.";
+  }, "cotizationsFileChange");
+  bindOnce(document.getElementById("cotizationsForm"), "submit", async (event) => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    await importManualCotizations();
+  }, "cotizationsFormSubmit");
+}
+
+function bindInflation() {
+  document.getElementById("newInflationButton")?.addEventListener("click", () => openInflationDialog());
+  document.getElementById("openInflationImportDialogButton")?.addEventListener("click", () => openInflationImportDialog());
+  bindOnce(document.getElementById("inflationFileInput"), "change", (event) => {
+    const file = event.target.files?.[0];
+    document.getElementById("inflationImportStatus").textContent = file
+      ? `${file.name} listo para importar.`
+      : "Cargá un archivo Excel con MonthYear, InflationDollar e InflationPesos.";
+  }, "inflationFileChange");
+  bindOnce(document.getElementById("inflationForm"), "submit", (event) => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    saveInflationEntry();
+  }, "inflationFormSubmit");
+  bindOnce(document.getElementById("inflationImportForm"), "submit", async (event) => {
+    if (event.submitter?.value === "cancel") return;
+    event.preventDefault();
+    await importInflationFile();
+  }, "inflationImportFormSubmit");
 }
 
 function bindReturns() {
@@ -578,15 +681,52 @@ function bindReturns() {
 }
 
 function render() {
-  document.getElementById("arsUsdInput").value = state.settings.arsUsd;
-  renderKpis();
-  renderHoldings();
-  renderMasterLists();
-  renderCharts();
-  renderKpiSection();
-  renderTransactions();
-  renderReturns();
+  const activeSection = getSectionById(currentSectionId);
+  const summaryBand = document.getElementById("dashboardSummaryBand");
+  renderDashboardSummaryBand();
+  if (summaryBand) {
+    summaryBand.hidden = !activeSection.showDashboardSummary;
+  }
+  activeSection.render(getSectionRenderContext());
   refreshIcons();
+}
+
+function renderShell() {
+  renderDashboardSummaryBand();
+  const summaryBand = document.getElementById("dashboardSummaryBand");
+  if (summaryBand) {
+    summaryBand.hidden = currentSectionId !== "dashboard";
+  }
+}
+
+async function mountSection(section) {
+  if (mountedSectionId === section.id) return;
+  if (typeof section.mount === "function") {
+    await section.mount(getSectionRenderContext());
+  }
+  mountedSectionId = section.id;
+}
+
+function getSectionRenderContext() {
+  return {
+    bindCotizations,
+    bindEntityCrud,
+    bindHoldingCrud,
+    bindInflation,
+    bindKpis,
+    bindReturns,
+    bindTransactions,
+    loadSectionTemplate(templateUrl) {
+      return loadSectionTemplateIntoHost(document.getElementById("sectionViewHost"), templateUrl);
+    },
+    renderCharts,
+    renderDashboard,
+    renderHoldings,
+    renderKpiSection,
+    renderMasterLists,
+    renderReturns,
+    renderTransactions,
+  };
 }
 
 async function syncBlueRatesFromBluelytics() {
@@ -614,6 +754,7 @@ async function syncBlueRatesFromBluelytics() {
       lastSyncAt: new Date().toISOString(),
       lastError: "",
     };
+    state.settings.arsUsd = getLatestBlueRate().sell;
     saveState();
     render();
   } catch (error) {
@@ -627,23 +768,146 @@ async function syncBlueRatesFromBluelytics() {
   }
 }
 
-function renderKpis() {
+async function loadManualCotizationsFromServer() {
+  try {
+    const response = await fetch(MANUAL_COTIZATIONS_API_URL, { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `No se pudieron cargar las cotizaciones (${response.status}).`);
+    }
+    applyManualCotizationsPayload(payload);
+    saveState();
+    render();
+  } catch (error) {
+    state.marketData.lastSyncAt = new Date().toISOString();
+    state.marketData.lastError = error.message ?? "No se pudieron cargar las cotizaciones manuales.";
+    saveState();
+    render();
+    console.warn("No se pudieron cargar las cotizaciones manuales.", error);
+  }
+}
+
+function applyManualCotizationsPayload(payload) {
+  const normalizedPrices = normalizeManualCotizationsPayload(payload);
+  state.marketData = {
+    ...state.marketData,
+    provider: payload?.provider ?? "manual-file",
+    prices: normalizedPrices,
+    lastSyncAt: payload?.updatedAt ?? new Date().toISOString(),
+    lastError: "",
+  };
+
+  Object.entries(normalizedPrices).forEach(([instrumentId, entry]) => {
+    const instrument = findById("instruments", instrumentId);
+    const latestRate = entry.rates?.[entry.rates.length - 1];
+    if (!instrument || !latestRate) return;
+    instrument.currency = normalizeCurrency(entry.currency || instrument.currency);
+    instrument.quote = latestRate.close;
+    instrument.usesPlatformQuotes = false;
+    instrument.platformQuotes = {};
+  });
+}
+
+function normalizeManualCotizationsPayload(payload) {
+  const prices = {};
+  if (payload?.prices && typeof payload.prices === "object") {
+    Object.entries(payload.prices).forEach(([instrumentId, entry]) => {
+      prices[instrumentId] = {
+        provider: entry.provider ?? "manual-file",
+        symbol: entry.symbol ?? findById("instruments", instrumentId)?.name ?? "",
+        currency: normalizeCurrency(entry.currency),
+        sourceFile: entry.sourceFile ?? "",
+        rates: normalizeHistoricalPriceRows(entry.rates ?? []),
+        lastSyncAt: entry.lastSyncAt ?? payload.updatedAt ?? "",
+        lastError: entry.lastError ?? "",
+      };
+    });
+    return prices;
+  }
+
+  if (payload?.instruments && typeof payload.instruments === "object") {
+    Object.entries(payload.instruments).forEach(([symbol, entry]) => {
+      const instrumentId = findInstrumentIdBySymbol(symbol);
+      if (!instrumentId) return;
+      const instrument = findById("instruments", instrumentId);
+      prices[instrumentId] = {
+        provider: "manual-file",
+        symbol,
+        currency: normalizeCurrency(instrument?.currency),
+        sourceFile: payload.tickersFile ?? "",
+        rates: normalizeHistoricalPriceRows(entry.history ?? entry.rates ?? []),
+        lastSyncAt: entry.lastSyncAt ?? payload.updatedAt ?? "",
+        lastError: entry.lastError ?? "",
+      };
+    });
+  }
+  return prices;
+}
+
+function findInstrumentIdBySymbol(symbol) {
+  const normalizedSymbol = normalizeHeader(symbol).replaceAll(" ", "");
+  return state.instruments.find((instrument) => normalizeHeader(instrument.name).replaceAll(" ", "") === normalizedSymbol)?.id ?? "";
+}
+
+function buildManualCotizationsStore() {
+  const prices = {};
+  Object.entries(state.marketData.prices ?? {}).forEach(([instrumentId, entry]) => {
+    if (!entry?.rates?.length) return;
+    prices[instrumentId] = {
+      provider: "manual-file",
+      symbol: entry.symbol || findById("instruments", instrumentId)?.name || "",
+      currency: normalizeCurrency(entry.currency || findById("instruments", instrumentId)?.currency),
+      sourceFile: entry.sourceFile ?? "",
+      rates: normalizeHistoricalPriceRows(entry.rates),
+      lastSyncAt: entry.lastSyncAt ?? "",
+      lastError: entry.lastError ?? "",
+    };
+  });
+  return {
+    provider: "manual-file",
+    updatedAt: new Date().toISOString(),
+    prices,
+  };
+}
+
+async function persistManualCotizationsToServer() {
+  const response = await fetch(MANUAL_COTIZATIONS_API_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildManualCotizationsStore()),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `No se pudo guardar cotizations.json (${response.status}).`);
+  }
+}
+
+function renderDashboard() {
+  const performanceLookups = renderDashboardSummaryBand();
+  renderCharts(performanceLookups);
+}
+
+function renderDashboardSummaryBand() {
   const slices = getFilteredHoldingSlices();
   const currentTotal = slices.reduce((sum, slice) => sum + slice.current, 0);
   const pendingTotal = slices.reduce((sum, slice) => sum + slice.pending, 0);
   const total = currentTotal + pendingTotal;
-  document.getElementById("globalTotal").textContent = formatUsd.format(total);
-  document.getElementById("globalTotalMeta").textContent = pendingTotal > 0
-    ? `${formatUsd.format(currentTotal)} efectivo + ${formatUsd.format(pendingTotal)} por cobrar`
-    : hasDashboardFilters()
-      ? "Resultado filtrado en USD"
-      : "Calculada en USD";
-  document.getElementById("instrumentCount").textContent = hasDashboardFilters()
-    ? new Set(slices.map((slice) => slice.holding.instrumentId)).size
-    : state.instruments.length;
-  document.getElementById("holdingCount").textContent = hasDashboardFilters()
-    ? new Set(slices.map((slice) => slice.holding.id)).size
-    : state.holdings.length;
+  const latestBlueRate = getLatestBlueRate();
+  const performanceLookups = getDashboardPerformanceLookups();
+  renderDashboardSummary({
+    total,
+    currentTotal,
+    pendingTotal,
+    hasFilters: hasDashboardFilters(),
+    portfolioReturn: performanceLookups.portfolio,
+    retirementSnapshot: getDashboardRetirementSnapshot(),
+    latestBlueRate,
+    formatUsd,
+    formatNumber,
+    formatPercentOneDecimal,
+    formatDisplayDate,
+  });
+  return performanceLookups;
 }
 
 function renderHoldings() {
@@ -687,8 +951,24 @@ function renderHoldings() {
 
 function renderTransactions() {
   fillSelect("transactionPlatformInput", state.platforms, document.getElementById("transactionPlatformInput")?.value || state.platforms[0]?.id);
-  renderInstrumentPerformance();
+  renderTransactionFilters();
   renderTransactionsTable();
+}
+
+function renderTransactionFilters() {
+  fillFilterSelect("transactionPlatformFilter", state.platforms, transactionFilters.platformId, "Todas");
+  fillFilterSelect("transactionFundFilter", state.funds, transactionFilters.fundId, "Todos");
+  fillStaticFilterSelect("transactionStatusFilter", Object.entries(transactionStatusLabels).map(([value, label]) => ({ value, label })), transactionFilters.status, "Todos");
+  fillStaticFilterSelect("transactionKindFilter", Object.entries(transactionKindLabels).map(([value, label]) => ({ value, label })), transactionFilters.kind, "Todos");
+  document.getElementById("transactionTradeDateFromFilter").value = transactionFilters.tradeDateFrom;
+  document.getElementById("transactionTradeDateToFilter").value = transactionFilters.tradeDateTo;
+  document.getElementById("transactionSettlementDateFromFilter").value = transactionFilters.settlementDateFrom;
+  document.getElementById("transactionSettlementDateToFilter").value = transactionFilters.settlementDateTo;
+  document.getElementById("transactionInstrumentFilter").value = transactionFilters.instrument;
+  document.getElementById("transactionQuantityFilter").value = transactionFilters.quantity;
+  document.getElementById("transactionPriceFilter").value = transactionFilters.price;
+  document.getElementById("transactionAmountFilter").value = transactionFilters.amount;
+  document.getElementById("transactionAccountFilter").value = transactionFilters.account;
 }
 
 function renderTransactionsTable() {
@@ -698,7 +978,13 @@ function renderTransactionsTable() {
     return;
   }
 
-  tbody.innerHTML = [...state.transactions]
+  const filteredTransactions = getFilteredTransactions();
+  if (!filteredTransactions.length) {
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">No hay transacciones que coincidan con los filtros actuales.</div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = [...filteredTransactions]
     .sort((a, b) => (b.tradeDate || "").localeCompare(a.tradeDate || "") || (b.sourceRow - a.sourceRow))
     .map((transaction) => {
       const platform = findById("platforms", transaction.platformId);
@@ -728,30 +1014,91 @@ function renderTransactionsTable() {
     .join("");
 }
 
-function renderInstrumentPerformance() {
-  const list = document.getElementById("instrumentPerformanceList");
-  const rows = calculateInstrumentPerformance();
-  if (!rows.length) {
-    list.innerHTML = `<div class="empty-state">Importá transacciones para ver rendimiento por instrumento.</div>`;
-    return;
-  }
+function getFilteredTransactions() {
+  return state.transactions.filter((transaction) => transactionMatchesFilters(transaction));
+}
 
-  list.innerHTML = rows
-    .map((row) => `
-      <div class="performance-item">
-        <div>
-          <strong>${escapeHtml(row.instrumentName)}</strong>
-          <div class="entity-meta">${escapeHtml(row.platformName)} · ${formatNumber.format(row.netQuantity)} unidades · ${formatMoneyByCurrency(row.currentValue, "DOLARES")} valuación actual</div>
-        </div>
-        <div class="performance-metrics">
-          <span>Costo abierto ${formatMoneyByCurrency(row.openCost, "DOLARES")}</span>
-          <span>Ingresos ${formatMoneyByCurrency(row.income, "DOLARES")}</span>
-          <span>Resultado ${formatMoneyByCurrency(row.totalResult, "DOLARES")}</span>
-          <strong class="${row.annualizedReturn >= 0 ? "positive" : "negative"}">${formatPercentOneDecimal(row.annualizedReturn * 100)} anual</strong>
-        </div>
-      </div>
-    `)
-    .join("");
+function transactionMatchesFilters(transaction) {
+  const platform = findById("platforms", transaction.platformId);
+  const fund = findById("funds", transaction.fundId);
+  const instrument = findById("instruments", transaction.instrumentId);
+  const tradeDate = transaction.tradeDate || "";
+  const settlementDate = transaction.settlementDate || "";
+  const instrumentLabel = `${instrument?.name ?? ""} ${transaction.symbol ?? ""}`.trim();
+  const accountLabel = `${transaction.currency || ""} ${transaction.sourceAccount || ""}`.trim();
+
+  return (
+    matchesDateFrom(tradeDate, transactionFilters.tradeDateFrom) &&
+    matchesDateTo(tradeDate, transactionFilters.tradeDateTo) &&
+    matchesDateFrom(settlementDate, transactionFilters.settlementDateFrom) &&
+    matchesDateTo(settlementDate, transactionFilters.settlementDateTo) &&
+    matchesExactFilter(transaction.platformId, transactionFilters.platformId) &&
+    matchesExactFilter(transaction.fundId, transactionFilters.fundId) &&
+    matchesExactFilter(transaction.status, transactionFilters.status) &&
+    matchesExactFilter(transaction.kind, transactionFilters.kind) &&
+    matchesTextFilter(instrumentLabel, transactionFilters.instrument) &&
+    matchesTextFilter(String(transaction.quantity ?? ""), transactionFilters.quantity) &&
+    matchesTextFilter(String(transaction.price ?? ""), transactionFilters.price) &&
+    matchesTextFilter(String(transaction.amount ?? ""), transactionFilters.amount) &&
+    matchesTextFilter(accountLabel, transactionFilters.account) &&
+    matchesTextFilter(platform?.name, "") &&
+    matchesTextFilter(fund?.name, "")
+  );
+}
+
+function syncTransactionFiltersFromDom() {
+  transactionFilters.tradeDateFrom = document.getElementById("transactionTradeDateFromFilter")?.value ?? "";
+  transactionFilters.tradeDateTo = document.getElementById("transactionTradeDateToFilter")?.value ?? "";
+  transactionFilters.settlementDateFrom = document.getElementById("transactionSettlementDateFromFilter")?.value ?? "";
+  transactionFilters.settlementDateTo = document.getElementById("transactionSettlementDateToFilter")?.value ?? "";
+  transactionFilters.platformId = document.getElementById("transactionPlatformFilter")?.value ?? "";
+  transactionFilters.fundId = document.getElementById("transactionFundFilter")?.value ?? "";
+  transactionFilters.status = document.getElementById("transactionStatusFilter")?.value ?? "";
+  transactionFilters.kind = document.getElementById("transactionKindFilter")?.value ?? "";
+  transactionFilters.instrument = document.getElementById("transactionInstrumentFilter")?.value.trim() ?? "";
+  transactionFilters.quantity = document.getElementById("transactionQuantityFilter")?.value.trim() ?? "";
+  transactionFilters.price = document.getElementById("transactionPriceFilter")?.value.trim() ?? "";
+  transactionFilters.amount = document.getElementById("transactionAmountFilter")?.value.trim() ?? "";
+  transactionFilters.account = document.getElementById("transactionAccountFilter")?.value.trim() ?? "";
+  renderTransactionsTable();
+}
+
+function clearTransactionFilters() {
+  Object.keys(transactionFilters).forEach((key) => {
+    transactionFilters[key] = "";
+  });
+  renderTransactions();
+  refreshIcons();
+}
+
+function fillFilterSelect(elementId, items, selectedValue, emptyLabel) {
+  const select = document.getElementById(elementId);
+  if (!select) return;
+  select.innerHTML = `<option value="">${emptyLabel}</option>${items.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("")}`;
+  select.value = selectedValue ?? "";
+}
+
+function fillStaticFilterSelect(elementId, items, selectedValue, emptyLabel) {
+  const select = document.getElementById(elementId);
+  if (!select) return;
+  select.innerHTML = `<option value="">${emptyLabel}</option>${items.map((item) => `<option value="${item.value}">${escapeHtml(item.label)}</option>`).join("")}`;
+  select.value = selectedValue ?? "";
+}
+
+function matchesExactFilter(value, filterValue) {
+  return !filterValue || String(value ?? "") === filterValue;
+}
+
+function matchesTextFilter(value, filterValue) {
+  return !filterValue || String(value ?? "").toLowerCase().includes(filterValue.toLowerCase());
+}
+
+function matchesDateFrom(value, from) {
+  return !from || (value && value >= from);
+}
+
+function matchesDateTo(value, to) {
+  return !to || (value && value <= to);
 }
 
 function renderReturns() {
@@ -767,7 +1114,7 @@ function renderReturns() {
     return;
   }
 
-  grid.innerHTML = groups
+    grid.innerHTML = groups
     .map((group, index) => `
       <article class="return-panel">
         <div class="return-panel-header">
@@ -837,22 +1184,24 @@ function renderFundReturns(instrumentGroups) {
 
   grid.innerHTML = portfolioCard + rows
     .map((row, index) => `
-      <article class="fund-return-card ${isFundIncludedInPortfolio(row.fundId) ? "" : "excluded-return-card"}">
+      <article class="fund-return-card ${returnFundControlsVisible && !isFundIncludedInPortfolio(row.fundId) ? "excluded-return-card" : ""}">
         <div>
           <span>Fondo</span>
           <h3>${escapeHtml(row.fundName)}</h3>
           <small>${row.instrumentCount} ${row.instrumentCount === 1 ? "instrumento ponderado" : "instrumentos ponderados"}</small>
         </div>
-        <div class="fund-return-actions" ${returnFundControlsVisible ? "" : "hidden"}>
-          <label class="checkbox-label" title="Incluir en cartera total">
-            <input type="checkbox" ${isFundIncludedInPortfolio(row.fundId) ? "checked" : ""} onchange="toggleReturnPortfolioFund('${row.fundId}', this.checked)" />
-            Cartera
-          </label>
-          <div class="fund-order-actions">
-            <button class="icon-button" type="button" title="Subir fondo" ${index === 0 ? "disabled" : ""} onclick="moveReturnFund('${row.fundId}', -1)"><i data-lucide="arrow-up"></i></button>
-            <button class="icon-button" type="button" title="Bajar fondo" ${index === rows.length - 1 ? "disabled" : ""} onclick="moveReturnFund('${row.fundId}', 1)"><i data-lucide="arrow-down"></i></button>
+        ${returnFundControlsVisible ? `
+          <div class="fund-return-actions">
+            <label class="checkbox-label" title="Incluir en cartera total">
+              <input type="checkbox" ${isFundIncludedInPortfolio(row.fundId) ? "checked" : ""} onchange="toggleReturnPortfolioFund('${row.fundId}', this.checked)" />
+              Cartera
+            </label>
+            <div class="fund-order-actions">
+              <button class="icon-button" type="button" title="Subir fondo" ${index === 0 ? "disabled" : ""} onclick="moveReturnFund('${row.fundId}', -1)"><i data-lucide="arrow-up"></i></button>
+              <button class="icon-button" type="button" title="Bajar fondo" ${index === rows.length - 1 ? "disabled" : ""} onclick="moveReturnFund('${row.fundId}', 1)"><i data-lucide="arrow-down"></i></button>
+            </div>
           </div>
-        </div>
+        ` : ""}
         <div class="fund-return-main">
           <strong class="${row.totalReturnPercent >= 0 ? "positive" : "negative"}">${formatPercentOneDecimal(row.totalReturnPercent * 100)}</strong>
           <small>TIR ${row.xirr === null ? "s/d" : formatPercentOneDecimal(row.xirr * 100)}</small>
@@ -1284,49 +1633,104 @@ function renderFundEvolutionCharts(fundRows) {
 
 function buildFundEvolutionSeries(fundRows) {
   const rowsByFund = new Map(fundRows.map((row) => [row.fundId, row]));
-  const eventsByFund = new Map();
-
-  [...state.transactions]
+  const dailyMovementsByDate = new Map();
+  const positionsByFund = new Map();
+  const cashByFund = new Map();
+  const relevantTransactions = [...state.transactions]
     .filter((transaction) => transaction.instrumentId)
-    .sort(compareTransactionsByDate)
-    .forEach((transaction) => {
-      const delta = getFundEvolutionTransactionDelta(transaction);
-      if (delta === 0) return;
-      const shares = getFundSharesForTransaction(transaction);
-      shares.forEach((share, fundId) => {
-        if (!rowsByFund.has(fundId) || share <= 0) return;
-        if (!eventsByFund.has(fundId)) eventsByFund.set(fundId, []);
-        eventsByFund.get(fundId).push({
-          date: transaction.tradeDate || transaction.settlementDate || todayIsoDate(),
-          value: delta * share,
-          label: transactionKindLabels[transaction.kind] ?? transaction.kind,
-          instrumentName: findById("instruments", transaction.instrumentId)?.name ?? transaction.symbol ?? "Instrumento",
-          status: transaction.status ?? "REALIZADA",
-        });
+    .sort(compareTransactionsByDate);
+
+  if (!relevantTransactions.length) return [];
+
+  relevantTransactions.forEach((transaction) => {
+    const date = transaction.tradeDate || transaction.settlementDate || todayIsoDate();
+    const quantityDelta = getFundEvolutionQuantityDelta(transaction);
+    const cashDelta = getFundEvolutionCashDelta(transaction);
+    const shares = getFundSharesForTransaction(transaction);
+    const instrumentName = findById("instruments", transaction.instrumentId)?.name ?? transaction.symbol ?? "Instrumento";
+    if (!dailyMovementsByDate.has(date)) {
+      dailyMovementsByDate.set(date, new Map());
+    }
+    const dailyMovementsByFund = dailyMovementsByDate.get(date);
+    shares.forEach((share, fundId) => {
+      if (!rowsByFund.has(fundId) || share <= 0) return;
+      if (!dailyMovementsByFund.has(fundId)) {
+        dailyMovementsByFund.set(fundId, []);
+      }
+      dailyMovementsByFund.get(fundId).push({
+        fundId,
+        instrumentId: transaction.instrumentId,
+        instrumentName,
+        label: transactionKindLabels[transaction.kind] ?? transaction.kind,
+        status: transaction.status ?? "REALIZADA",
+        quantityDelta: quantityDelta * share,
+        cashDelta: cashDelta * share,
+      });
+    });
+  });
+
+  const firstDate = relevantTransactions[0]?.tradeDate || relevantTransactions[0]?.settlementDate || todayIsoDate();
+  const lastDate = todayIsoDate();
+  const pointsByFund = new Map(fundRows.map((row) => [row.fundId, []]));
+
+  for (let date = firstDate; date <= lastDate; date = addDaysIso(date, 1)) {
+    const dailyMovementsByFund = dailyMovementsByDate.get(date) ?? new Map();
+
+    dailyMovementsByFund.forEach((movements, fundId) => {
+      movements.forEach((movement) => {
+        const positionKey = `${fundId}|${movement.instrumentId}`;
+        positionsByFund.set(positionKey, Math.max(0, (positionsByFund.get(positionKey) ?? 0) + movement.quantityDelta));
+        cashByFund.set(fundId, (cashByFund.get(fundId) ?? 0) + movement.cashDelta);
       });
     });
 
+    fundRows.forEach((row) => {
+      const movements = dailyMovementsByFund.get(row.fundId) ?? [];
+      const accumulated = getFundMarketValueOnDate(row.fundId, date, positionsByFund, cashByFund);
+      const points = pointsByFund.get(row.fundId);
+      const previousValue = points[points.length - 1]?.accumulated ?? 0;
+      if (!points.length && accumulated <= 0 && !movements.length) return;
+      points.push({
+        date,
+        value: accumulated,
+        accumulated,
+        variation: accumulated - previousValue,
+        label: getFundEvolutionDailyLabel(movements),
+        instrumentName: getFundEvolutionDailyInstrumentName(movements),
+        status: getFundEvolutionDailyStatus(movements),
+        hasMovement: movements.length > 0,
+        movements,
+      });
+    });
+  }
+
   return fundRows
     .map((row) => {
-      const events = eventsByFund.get(row.fundId) ?? [];
-      let accumulated = 0;
-      const points = events.map((event) => {
-        accumulated += event.value;
-        return {
-          ...event,
-          accumulated,
-        };
-      });
+      const points = pointsByFund.get(row.fundId) ?? [];
       const today = todayIsoDate();
       if (row.currentValue > 0 && (!points.length || points[points.length - 1].date !== today || Math.abs(points[points.length - 1].accumulated - row.currentValue) > 0.01)) {
-        points.push({
-          date: today,
-          value: row.currentValue - accumulated,
-          accumulated: row.currentValue,
-          label: "Valor actual",
-          instrumentName: "Cartera del fondo",
-          status: "REALIZADA",
-        });
+        if (points.length && points[points.length - 1].date === today) {
+          const previousValue = points[points.length - 2]?.accumulated ?? 0;
+          points[points.length - 1] = {
+            ...points[points.length - 1],
+            value: row.currentValue,
+            accumulated: row.currentValue,
+            variation: row.currentValue - previousValue,
+            label: points[points.length - 1].hasMovement ? points[points.length - 1].label : "Valor actual",
+          };
+        } else {
+          points.push({
+            date: today,
+            value: row.currentValue,
+            variation: row.currentValue - (points[points.length - 1]?.accumulated ?? 0),
+            accumulated: row.currentValue,
+            label: "Valor actual",
+            instrumentName: "Cartera del fondo",
+            status: "REALIZADA",
+            hasMovement: false,
+            movements: [],
+          });
+        }
       }
       return {
         ...row,
@@ -1336,6 +1740,35 @@ function buildFundEvolutionSeries(fundRows) {
     .filter((row) => row.points.length);
 }
 
+function getFundMarketValueOnDate(fundId, date, positionsByFund, cashByFund) {
+  let total = cashByFund.get(fundId) ?? 0;
+  positionsByFund.forEach((quantity, key) => {
+    const [positionFundId, instrumentId] = key.split("|");
+    if (positionFundId !== fundId || quantity <= 0) return;
+    const instrument = findById("instruments", instrumentId);
+    total += quantity * getHistoricalInstrumentPriceUsd(instrument, date);
+  });
+  return Math.max(0, total);
+}
+
+function getFundEvolutionDailyLabel(movements) {
+  if (!movements.length) return "Valuación diaria";
+  if (movements.length === 1) return movements[0].label;
+  return `${movements.length} movimientos`;
+}
+
+function getFundEvolutionDailyInstrumentName(movements) {
+  if (!movements.length) return "Cartera del fondo";
+  const instrumentNames = [...new Set(movements.map((movement) => movement.instrumentName).filter(Boolean))];
+  if (instrumentNames.length === 1) return instrumentNames[0];
+  if (instrumentNames.length <= 3) return instrumentNames.join(", ");
+  return `${instrumentNames.length} instrumentos`;
+}
+
+function getFundEvolutionDailyStatus(movements) {
+  return movements.some((movement) => movement.status === "PENDIENTE") ? "PENDIENTE" : "REALIZADA";
+}
+
 function getFundSharesForTransaction(transaction) {
   if (transaction.fundId && isCashLikeInstrumentId(transaction.instrumentId)) {
     return new Map([[transaction.fundId, 1]]);
@@ -1343,13 +1776,41 @@ function getFundSharesForTransaction(transaction) {
   return getFundSharesForInstrumentPlatform(transaction.instrumentId, transaction.platformId);
 }
 
-function getFundEvolutionTransactionDelta(transaction) {
+function getFundEvolutionQuantityDelta(transaction) {
+  const amountUsd = convertTransactionAmountToUsd(transaction);
+  const quantity = getPerformanceQuantity(transaction, amountUsd);
+  if (transaction.kind === "BUY" || transaction.kind === "CAUCION_OPEN") return quantity;
+  if (transaction.kind === "SELL" || transaction.kind === "CAUCION_CLOSE") return -quantity;
+  return 0;
+}
+
+function getFundEvolutionCashDelta(transaction) {
   const amountUsd = convertTransactionAmountToUsd(transaction);
   if (amountUsd === 0) return 0;
-  if (transaction.kind === "BUY" || transaction.kind === "CAUCION_OPEN") return Math.abs(amountUsd);
-  if (transaction.kind === "SELL" || transaction.kind === "WITHDRAWAL" || transaction.kind === "FEE" || transaction.kind === "TAX" || transaction.kind === "CAUCION_CLOSE") return -Math.abs(amountUsd);
+  if (transaction.kind === "SELL" || transaction.kind === "CAUCION_CLOSE") return Math.abs(amountUsd);
+  if (transaction.kind === "WITHDRAWAL" || transaction.kind === "FEE" || transaction.kind === "TAX") return -Math.abs(amountUsd);
   if (transaction.kind === "DIVIDEND" || transaction.kind === "INCOME" || transaction.kind === "DEPOSIT") return Math.abs(amountUsd);
-  return amountUsd;
+  return 0;
+}
+
+function getHistoricalInstrumentPriceUsd(instrument, date) {
+  if (!instrument) return 0;
+  if (isCashLikeName(instrument.name)) return 1;
+  const price = getClosestHistoricalInstrumentPrice(instrument.id, date) ?? toNumber(instrument.quote, 0);
+  if (price <= 0) return 0;
+  const currency = String(instrument.currency ?? "").toUpperCase();
+  if (currency.includes("PESO")) {
+    return price / getClosestBlueRateForDate(date).sell;
+  }
+  return price;
+}
+
+function getClosestHistoricalInstrumentPrice(instrumentId, date) {
+  const rates = state.marketData?.prices?.[instrumentId]?.rates ?? [];
+  if (!rates.length) return null;
+  const targetDate = String(date || todayIsoDate()).slice(0, 10);
+  const exactOrPrevious = [...rates].reverse().find((rate) => rate.date <= targetDate);
+  return exactOrPrevious?.close ?? rates[0].close ?? null;
 }
 
 function createFundEvolutionChart(canvasId, row) {
@@ -1367,8 +1828,12 @@ function createFundEvolutionChart(canvasId, row) {
             borderColor: findById("funds", row.fundId)?.color || "#0f766e",
             backgroundColor: "rgba(15, 118, 110, 0.12)",
             pointBackgroundColor: row.points.map((point) => (point.status === "PENDIENTE" ? "#d6a51f" : findById("funds", row.fundId)?.color || "#0f766e")),
-            pointRadius: 4,
-            pointHoverRadius: 6,
+            pointRadius(context) {
+              return row.points[context.dataIndex]?.hasMovement ? 4 : 0;
+            },
+            pointHoverRadius(context) {
+              return row.points[context.dataIndex]?.hasMovement ? 6 : 3;
+            },
             tension: 0.2,
             fill: true,
           },
@@ -1387,12 +1852,23 @@ function createFundEvolutionChart(canvasId, row) {
               afterBody(items) {
                 const point = row.points[items[0]?.dataIndex];
                 if (!point) return "";
-                return [
+                const details = [
                   `Movimiento: ${point.label}`,
                   `Instrumento: ${point.instrumentName}`,
-                  `Variación: ${formatUsd.format(point.value)}`,
+                  `Variación del día: ${formatUsd.format(point.variation ?? point.value)}`,
                   `Estado: ${transactionStatusLabels[point.status] ?? point.status}`,
                 ];
+                if (point.movements?.length) {
+                  point.movements.slice(0, 3).forEach((movement) => {
+                    details.push(`• ${movement.label} · ${movement.instrumentName}`);
+                  });
+                  if (point.movements.length > 3) {
+                    details.push(`• ${point.movements.length - 3} movimientos más`);
+                  }
+                } else {
+                  details.push("Valuado con la cotización histórica más cercana disponible.");
+                }
+                return details;
               },
             },
           },
@@ -1469,44 +1945,125 @@ function toggleReturnChartUnitMode(canvasId, checked) {
 }
 
 function renderMasterLists() {
-  renderEntityList("platforms", "platformsList");
-  renderEntityList("instrumentTypes", "instrumentTypesList");
-  renderEntityList("instruments", "instrumentsList");
-  renderEntityList("funds", "fundsList");
+  renderEntityTable("platforms", "platformsTable");
+  renderEntityTable("instrumentTypes", "instrumentTypesTable");
+  renderEntityTable("instruments", "instrumentsTable");
+  renderEntityTable("funds", "fundsTable");
+  renderManualCotizationsTable();
+  renderInflationTable();
 }
 
-function renderEntityList(kind, elementId) {
+function renderEntityTable(kind, elementId) {
   const element = document.getElementById(elementId);
-  if (!state[kind].length) {
-    element.innerHTML = `<div class="empty-state">Sin registros.</div>`;
+  const rows = state[kind] ?? [];
+  if (!rows.length) {
+    element.innerHTML = `<tr><td colspan="${getEntityTableColumnCount(kind)}"><div class="empty-state">Sin registros.</div></td></tr>`;
     return;
   }
 
-  element.innerHTML = state[kind]
+  element.innerHTML = rows
     .map((item) => {
-      const quoteMeta =
-        kind === "instrumentTypes"
-          ? `<div class="entity-meta">${item.currency ?? "DOLARES"} · Cotización ${formatNumber.format(item.quote ?? 0)}</div>`
-          : kind === "instruments" && item.quote !== undefined
-            ? `<div class="entity-meta">${item.currency ?? "DOLARES"} · ${item.usesPlatformQuotes ? "Cotización por plataforma" : `Cotización ${formatNumber.format(item.quote ?? 0)}`}</div>`
-          : "";
+      const description = escapeHtml(item.description || "Sin descripción");
+      if (kind === "instruments") {
+        return `
+          <tr>
+            <td><div class="table-title-cell"><span class="color-swatch" style="background:${escapeHtml(item.color || "#dfe5df")}"></span><strong>${escapeHtml(item.name)}</strong></div></td>
+            <td>${description}</td>
+            <td>${escapeHtml(item.currency ?? "DOLARES")}</td>
+            <td>${formatNumber.format(item.quote ?? 0)}</td>
+            <td>${renderColorCell(item.color)}</td>
+            <td>
+              <div class="actions">
+                <button class="icon-button" type="button" title="Editar" onclick="openEntityDialog('${kind}', '${item.id}')"><i data-lucide="pencil"></i></button>
+                <button class="icon-button danger-button" type="button" title="Eliminar" onclick="deleteEntity('${kind}', '${item.id}')"><i data-lucide="trash-2"></i></button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+
       return `
-        <div class="entity-item">
-          <div>
-            <div class="entity-title-row">
-              <span class="color-swatch" style="background:${escapeHtml(item.color || "#dfe5df")}"></span>
-              <strong>${escapeHtml(item.name)}</strong>
+        <tr>
+          <td><div class="table-title-cell"><span class="color-swatch" style="background:${escapeHtml(item.color || "#dfe5df")}"></span><strong>${escapeHtml(item.name)}</strong></div></td>
+          <td>${description}</td>
+          <td>${renderColorCell(item.color)}</td>
+          <td>
+            <div class="actions">
+              <button class="icon-button" type="button" title="Editar" onclick="openEntityDialog('${kind}', '${item.id}')"><i data-lucide="pencil"></i></button>
+              <button class="icon-button danger-button" type="button" title="Eliminar" onclick="deleteEntity('${kind}', '${item.id}')"><i data-lucide="trash-2"></i></button>
             </div>
-            <div class="entity-meta">${escapeHtml(item.description || "Sin descripción")}</div>
-            ${quoteMeta}
-          </div>
-          <div class="actions">
-            <button class="icon-button" type="button" title="Editar" onclick="openEntityDialog('${kind}', '${item.id}')"><i data-lucide="pencil"></i></button>
-            <button class="icon-button danger-button" type="button" title="Eliminar" onclick="deleteEntity('${kind}', '${item.id}')"><i data-lucide="trash-2"></i></button>
-          </div>
-        </div>
+          </td>
+        </tr>
       `;
     })
+    .join("");
+}
+
+function getEntityTableColumnCount(kind) {
+  return kind === "instruments" ? 6 : 4;
+}
+
+function renderColorCell(color) {
+  if (!color) return '<span class="muted">Sin color</span>';
+  return `<div class="table-color-cell"><span class="color-swatch" style="background:${escapeHtml(color)}"></span><span>${escapeHtml(color)}</span></div>`;
+}
+
+function renderManualCotizationsTable() {
+  const element = document.getElementById("cotizationsTable");
+  const entries = Object.entries(state.marketData?.prices ?? {})
+    .filter(([, entry]) => entry?.rates?.length)
+    .sort(([, left], [, right]) => (right.lastSyncAt || "").localeCompare(left.lastSyncAt || ""));
+
+  if (!entries.length) {
+    element.innerHTML = `<tr><td colspan="7"><div class="empty-state">Todavía no hay cotizaciones manuales cargadas.</div></td></tr>`;
+    return;
+  }
+
+  element.innerHTML = entries
+    .map(([instrumentId, entry]) => {
+      const instrument = findById("instruments", instrumentId);
+      const latestRate = entry.rates[entry.rates.length - 1];
+      return `
+        <tr>
+          <td><div class="table-title-cell"><span class="color-swatch" style="background:${escapeHtml(instrument?.color || "#dfe5df")}"></span><strong>${escapeHtml(instrument?.name ?? entry.symbol ?? "Instrumento")}</strong></div></td>
+          <td>${escapeHtml(entry.currency || instrument?.currency || "DOLARES")}</td>
+          <td>${formatNumber.format(entry.rates.length)}</td>
+          <td>${escapeHtml(formatDisplayDate(latestRate?.date || ""))}</td>
+          <td>${escapeHtml(formatNumber.format(latestRate?.close || 0))}</td>
+          <td>${entry.sourceFile ? escapeHtml(entry.sourceFile) : '<span class="muted">Manual</span>'}</td>
+          <td>
+            <div class="actions">
+              <button class="icon-button" type="button" title="Reemplazar cotizaciones" onclick="openCotizationsDialog('${instrumentId}')"><i data-lucide="refresh-cw"></i></button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+function renderInflationTable() {
+  const element = document.getElementById("inflationTable");
+  const rows = [...(state.inflation?.rates ?? [])].sort((a, b) => b.month.localeCompare(a.month));
+  if (!rows.length) {
+    element.innerHTML = `<tr><td colspan="4"><div class="empty-state">Todavía no hay inflación cargada.</div></td></tr>`;
+    return;
+  }
+
+  element.innerHTML = rows
+    .map((row) => `
+      <tr>
+        <td><strong>${escapeHtml(row.month)}</strong></td>
+        <td>${formatNumber.format(row.usd)}</td>
+        <td>${formatNumber.format(row.ars)}</td>
+        <td>
+          <div class="actions">
+            <button class="icon-button" type="button" title="Editar" onclick="openInflationDialog('${row.month}')"><i data-lucide="pencil"></i></button>
+            <button class="icon-button danger-button" type="button" title="Eliminar" onclick="deleteInflationEntry('${row.month}')"><i data-lucide="trash-2"></i></button>
+          </div>
+        </td>
+      </tr>
+    `)
     .join("");
 }
 
@@ -1589,25 +2146,56 @@ function resetDashboardFilters() {
   Object.values(dashboardFilters).forEach((selectedValues) => selectedValues.clear());
 }
 
-function rerenderDashboardViews() {
-  renderKpis();
+function excludeDashboardChartItem(filterKey, id) {
+  if (!dashboardChartExclusions[filterKey] || !id) return;
+  dashboardChartExclusions[filterKey].add(id);
   renderCharts();
-  renderKpiSection();
   refreshIcons();
 }
 
-function renderCharts() {
+function resetDashboardChartExclusions(filterKey) {
+  if (!dashboardChartExclusions[filterKey]) return;
+  dashboardChartExclusions[filterKey].clear();
+  renderCharts();
+  refreshIcons();
+}
+
+function getDashboardVisibleSeries(filterKey, series) {
+  const hiddenIds = dashboardChartExclusions[filterKey];
+  if (!hiddenIds?.size) return series;
+  const visibleSeries = series.filter((item) => !hiddenIds.has(item.id));
+  return visibleSeries.length ? visibleSeries : series;
+}
+
+function bindDashboardChartContextMenu(chart, filterKey) {
+  chart.canvas.addEventListener("contextmenu", (event) => {
+    const elements = chart.getElementsAtEventForMode(event, "nearest", { intersect: true }, true);
+    const element = elements[0];
+    if (!element) return;
+    event.preventDefault();
+    const id = chart.data.datasets[element.datasetIndex].filterIds[element.index];
+    excludeDashboardChartItem(filterKey, id);
+  });
+}
+
+function rerenderDashboardViews() {
+  renderDashboard();
+  refreshIcons();
+}
+
+function renderCharts(performanceLookups = getDashboardPerformanceLookups()) {
   charts.forEach((chart) => chart.destroy());
   charts = [];
   renderDashboardFilterBar();
 
   const chartGrid = document.getElementById("chartGrid");
-  const specs = [
-    { id: "fund", title: "Por Fondo", filterKey: "fundIds", series: aggregateByFund("fundIds") },
-    { id: "instrument", title: "Por Instrumento", filterKey: "instrumentIds", series: aggregateBy("instruments", "instrumentId", "instrumentIds") },
-    { id: "platform", title: "Por Plataforma", filterKey: "platformIds", series: aggregateBy("platforms", "platformId", "platformIds") },
-    { id: "type", title: "Por Tipo de Instrumento", filterKey: "typeIds", series: aggregateBy("instrumentTypes", "typeId", "typeIds") },
-  ];
+  const specs = buildDashboardChartSpecs({
+    aggregateByFund,
+    aggregateBy,
+    dashboardFilters,
+    performanceByFundId: performanceLookups.fundById,
+    performanceByInstrumentId: performanceLookups.instrumentById,
+  });
 
   chartGrid.innerHTML = specs
     .map(
@@ -1615,7 +2203,10 @@ function renderCharts() {
         <section class="chart-section">
           <div class="chart-section-header">
             <h3>${spec.title}</h3>
-            ${dashboardFilters[spec.filterKey].size ? `<span class="filter-count">${dashboardFilters[spec.filterKey].size}</span>` : ""}
+            <div class="chart-section-actions">
+              ${spec.activeCount ? `<span class="filter-count">${spec.activeCount}</span>` : ""}
+              ${dashboardChartExclusions[spec.filterKey].size ? `<button class="ghost-button chart-reset-button" type="button" data-chart-reset="${spec.filterKey}"><i data-lucide="rotate-ccw"></i>Reiniciar gráfico</button>` : ""}
+            </div>
           </div>
           <div class="chart-pair">
             <div class="chart-panel"><canvas id="${spec.id}Pie"></canvas></div>
@@ -1626,9 +2217,16 @@ function renderCharts() {
     )
     .join("");
 
+  chartGrid.querySelectorAll("[data-chart-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      resetDashboardChartExclusions(button.dataset.chartReset);
+    });
+  });
+
   specs.forEach((spec) => {
-    createPieChart(`${spec.id}Pie`, spec.series, spec.filterKey);
-    createBarChart(`${spec.id}Bar`, spec.series, spec.filterKey);
+    const visibleSeries = getDashboardVisibleSeries(spec.filterKey, spec.series);
+    createPieChart(`${spec.id}Pie`, visibleSeries, spec.filterKey);
+    createBarChart(`${spec.id}Bar`, visibleSeries, spec.filterKey);
   });
 }
 
@@ -1639,33 +2237,62 @@ function renderKpiSection() {
 }
 
 function renderKpiFundSelects() {
-  fillSelect("retirementFundInput", state.funds, state.kpis.retirementSalary.fundId);
+  fillMultiSelect("retirementFundInput", state.funds, state.kpis.retirementSalary.fundIds);
   fillSelect("indicatorFundInput", state.funds, document.getElementById("indicatorFundInput").value || state.funds[0]?.id);
+  fillSelect("newIndicatorFundInput", state.funds, document.getElementById("newIndicatorFundInput")?.value || state.funds[0]?.id);
   document.getElementById("retirementPercentInput").value = state.kpis.retirementSalary.annualPercent;
 }
 
 function renderRetirementSalary() {
   const settings = state.kpis.retirementSalary;
-  const fund = findById("funds", settings.fundId);
-  const fundTotals = getFundTotals(settings.fundId);
+  const selectedFunds = getRetirementFunds(settings.fundIds);
+  const fundTotals = getFundsTotals(settings.fundIds);
   const fundValue = fundTotals.current;
   const estimatedFundValue = fundTotals.value;
   const monthlySalary = (fundValue * (toNumber(settings.annualPercent, 0) / 100)) / 12;
   const estimatedMonthlySalary = (estimatedFundValue * (toNumber(settings.annualPercent, 0) / 100)) / 12;
   document.getElementById("retirementSalaryValue").textContent = formatUsd.format(monthlySalary);
   document.getElementById("retirementSalaryMeta").textContent = fundTotals.pending > 0
-    ? `${escapeHtml(fund?.name ?? "Fondo")} · ${formatUsd.format(fundValue)} efectivo · ${formatUsd.format(estimatedMonthlySalary)} al cobrar · ${formatNumber.format(settings.annualPercent)}% anual`
-    : `${escapeHtml(fund?.name ?? "Fondo")} · ${formatUsd.format(fundValue)} · ${formatNumber.format(settings.annualPercent)}% anual`;
+    ? `${getRetirementFundsLabel(selectedFunds)} · ${formatUsd.format(fundValue)} actual · ${formatUsd.format(estimatedMonthlySalary)} al cobrar · ${formatNumber.format(settings.annualPercent)}% anual`
+    : `${getRetirementFundsLabel(selectedFunds)} · ${formatUsd.format(fundValue)} · ${formatNumber.format(settings.annualPercent)}% anual`;
+}
+
+function getDashboardRetirementSnapshot() {
+  const settings = state.kpis.retirementSalary;
+  const selectedFunds = getRetirementFunds(settings.fundIds);
+  const fundTotals = getFundsTotals(settings.fundIds);
+  const annualPercent = toNumber(settings.annualPercent, 0);
+  return {
+    fundName: getRetirementFundsLabel(selectedFunds),
+    annualPercent,
+    pending: fundTotals.pending,
+    monthlySalary: (fundTotals.current * (annualPercent / 100)) / 12,
+    estimatedMonthlySalary: (fundTotals.value * (annualPercent / 100)) / 12,
+  };
+}
+
+function getDashboardPerformanceLookups() {
+  const instrumentGroups = calculateReturnLotCharts();
+  const fundRows = calculateFundReturns(instrumentGroups);
+  return {
+    portfolio: sanitizePerformanceMetrics(calculatePortfolioReturnFromFundRows(fundRows)),
+    fundById: new Map(fundRows.map((row) => [row.fundId, sanitizePerformanceMetrics(row)])),
+    instrumentById: new Map(instrumentGroups.map((group) => [group.instrumentId, sanitizePerformanceMetrics(group)])),
+  };
+}
+
+function sanitizePerformanceMetrics(metrics) {
+  if (!metrics) return null;
+  return {
+    ...metrics,
+    xirr: Number.isFinite(metrics.xirr) ? metrics.xirr : null,
+    totalReturnPercent: Number.isFinite(metrics.totalReturnPercent) ? metrics.totalReturnPercent : 0,
+  };
 }
 
 function renderIndicatorGrid() {
   const grid = document.getElementById("indicatorGrid");
-  if (!state.kpis.indicators.length) {
-    grid.innerHTML = `<div class="empty-state">Todavía no hay indicadores configurados.</div>`;
-    return;
-  }
-
-  grid.innerHTML = state.kpis.indicators
+  const indicatorCards = state.kpis.indicators
     .map((indicator, index) => {
       const fund = findById("funds", indicator.fundId);
       const fundTotals = getFundTotals(indicator.fundId);
@@ -1702,6 +2329,47 @@ function renderIndicatorGrid() {
     })
     .join("");
 
+  grid.innerHTML = `
+    <article class="gauge-card gauge-card-create">
+      <div class="gauge-card-header">
+        <div>
+          <h3>Nuevo indicator</h3>
+          <div class="gauge-meta">
+            <span>Crealo directamente desde esta grilla.</span>
+            <span>Después podés reordenarlo o editarlo desde su tarjeta.</span>
+          </div>
+        </div>
+      </div>
+      <form id="newInlineIndicatorForm" class="form-grid compact-form inline-indicator-form">
+        <label>
+          Nombre
+          <input id="newIndicatorNameInput" type="text" required />
+        </label>
+        <label>
+          Fondo origen
+          <select id="newIndicatorFundInput" required></select>
+        </label>
+        <label class="span-2">
+          Monto máximo esperado
+          <input id="newIndicatorMaxInput" type="number" min="0" step="0.01" required />
+        </label>
+        <div class="inline-indicator-actions span-2">
+          <button class="primary-button" type="submit">
+            <i data-lucide="plus"></i>
+            Crear indicator
+          </button>
+        </div>
+      </form>
+    </article>
+    ${indicatorCards || `<div class="empty-state">Todavía no hay indicadores configurados.</div>`}
+  `;
+
+  bindOnce(document.getElementById("newInlineIndicatorForm"), "submit", (event) => {
+    event.preventDefault();
+    saveIndicator(event.currentTarget);
+  }, "newInlineIndicatorFormSubmit");
+  fillSelect("newIndicatorFundInput", state.funds, document.getElementById("newIndicatorFundInput")?.value || state.funds[0]?.id);
+
   state.kpis.indicators.forEach((indicator) => {
     const fundTotals = getFundTotals(indicator.fundId);
     drawGauge(`indicatorGauge-${indicator.id}`, fundTotals.current, indicator.maxAmount, fundTotals.value);
@@ -1720,20 +2388,22 @@ function openIndicatorDialog(id = "") {
 
 function saveRetirementSettings() {
   state.kpis.retirementSalary = {
-    fundId: document.getElementById("retirementFundInput").value,
+    fundIds: getMultiSelectValues(document.getElementById("retirementFundInput")),
     annualPercent: toNumber(document.getElementById("retirementPercentInput").value, 0),
   };
   saveState();
+  renderDashboardSummaryBand();
   renderKpiSection();
 }
 
-function saveIndicator() {
-  const id = document.getElementById("indicatorIdInput").value;
+function saveIndicator(form = document.getElementById("indicatorForm")) {
+  const isInlineForm = form?.id === "newInlineIndicatorForm";
+  const id = isInlineForm ? "" : document.getElementById("indicatorIdInput").value;
   const payload = {
     id: id || crypto.randomUUID(),
-    name: document.getElementById("indicatorNameInput").value.trim(),
-    fundId: document.getElementById("indicatorFundInput").value,
-    maxAmount: toNumber(document.getElementById("indicatorMaxInput").value, 0),
+    name: document.getElementById(isInlineForm ? "newIndicatorNameInput" : "indicatorNameInput").value.trim(),
+    fundId: document.getElementById(isInlineForm ? "newIndicatorFundInput" : "indicatorFundInput").value,
+    maxAmount: toNumber(document.getElementById(isInlineForm ? "newIndicatorMaxInput" : "indicatorMaxInput").value, 0),
   };
 
   if (!payload.name || !payload.fundId || payload.maxAmount <= 0) return;
@@ -1746,7 +2416,11 @@ function saveIndicator() {
 
   resetIndicatorForm();
   saveState();
-  document.getElementById("indicatorDialog").close();
+  if (isInlineForm) {
+    form.reset();
+  } else {
+    document.getElementById("indicatorDialog").close();
+  }
   renderKpiSection();
   refreshIcons();
 }
@@ -2684,6 +3358,7 @@ function getGaugeColor(amount) {
 }
 
 function formatPercentOneDecimal(percent) {
+  if (!Number.isFinite(percent)) return "s/d";
   return `${percent.toFixed(1)}%`;
 }
 
@@ -2724,8 +3399,8 @@ function openEntityDialog(kind, id = "") {
   };
 
   const form = document.getElementById("entityForm");
-  form.classList.toggle("show-quote-fields", kind === "instrumentTypes" || kind === "instruments");
-  form.classList.toggle("show-instrument-fields", kind === "instruments");
+  form.classList.toggle("show-quote-fields", kind === "instruments");
+  form.classList.toggle("show-instrument-fields", false);
   document.getElementById("entityDialogEyebrow").textContent = labels[kind];
   document.getElementById("entityDialogTitle").textContent = item ? `Editar ${labels[kind].toLowerCase()}` : `Nuevo ${labels[kind].toLowerCase()}`;
   document.getElementById("entityKindInput").value = kind;
@@ -2737,8 +3412,8 @@ function openEntityDialog(kind, id = "") {
   updatePresetColorSelection();
   document.getElementById("entityCurrencyInput").value = item?.currency ?? "DOLARES";
   document.getElementById("entityQuoteInput").value = item?.quote ?? 1;
-  document.getElementById("entityUsesPlatformQuotesInput").checked = Boolean(item?.usesPlatformQuotes);
-  renderPlatformQuotesEditor(item?.platformQuotes ?? {});
+  document.getElementById("entityUsesPlatformQuotesInput").checked = false;
+  renderPlatformQuotesEditor({});
   document.getElementById("entityDialog").showModal();
 }
 
@@ -2747,6 +3422,7 @@ function saveEntity() {
   const id = document.getElementById("entityIdInput").value;
   const name = document.getElementById("entityNameInput").value.trim();
   if (!name) return;
+  const existingItem = id ? findById(kind, id) : null;
 
   const payload = {
     id: id || crypto.randomUUID(),
@@ -2758,14 +3434,16 @@ function saveEntity() {
         : normalizeColor(document.getElementById("entityColorInput").value),
   };
 
-  if (kind === "instrumentTypes" || kind === "instruments") {
-    payload.currency = document.getElementById("entityCurrencyInput").value;
-    payload.quote = toNumber(document.getElementById("entityQuoteInput").value, 0);
+  if (kind === "instrumentTypes") {
+    payload.currency = existingItem?.currency ?? "DOLARES";
+    payload.quote = toNumber(existingItem?.quote, 1) || 1;
   }
 
   if (kind === "instruments") {
-    payload.usesPlatformQuotes = document.getElementById("entityUsesPlatformQuotesInput").checked;
-    payload.platformQuotes = readPlatformQuotes();
+    payload.currency = document.getElementById("entityCurrencyInput").value;
+    payload.quote = toNumber(document.getElementById("entityQuoteInput").value, 0);
+    payload.usesPlatformQuotes = false;
+    payload.platformQuotes = {};
   }
 
   if (id) {
@@ -2780,34 +3458,219 @@ function saveEntity() {
 }
 
 function renderPlatformQuotesEditor(platformQuotes = readPlatformQuotes()) {
-  const enabled = document.getElementById("entityUsesPlatformQuotesInput").checked;
   const editor = document.getElementById("platformQuotesEditor");
-  editor.classList.toggle("is-hidden", !enabled);
-  editor.innerHTML = `
-    <h4>Cotización por plataforma</h4>
-    <div class="platform-quote-grid">
-      ${state.platforms
-        .map(
-          (platform) => `
-            <label>
-              ${escapeHtml(platform.name)}
-              <input class="platform-quote-input" data-platform-id="${platform.id}" type="number" min="0" step="0.00000001" value="${platformQuotes[platform.id] ?? ""}" />
-            </label>
-          `,
-        )
-        .join("")}
-    </div>
-  `;
+  editor.classList.add("is-hidden");
+  editor.innerHTML = "";
 }
 
 function readPlatformQuotes() {
-  return [...document.querySelectorAll(".platform-quote-input")].reduce((quotes, input) => {
-    const value = toNumber(input.value, NaN);
-    if (Number.isFinite(value) && value > 0) {
-      quotes[input.dataset.platformId] = value;
+  return {};
+}
+
+function openCotizationsDialog(instrumentId = "") {
+  fillSelect("cotizationsInstrumentInput", state.instruments, instrumentId || state.instruments[0]?.id);
+  syncCotizationsCurrencyFromInstrument();
+  document.getElementById("cotizationsFileInput").value = "";
+  document.getElementById("cotizationsImportStatus").textContent = "Seleccioná un instrumento, una moneda y un archivo Excel con las columnas Fecha Cotización y Cierre.";
+  document.getElementById("cotizationsDialog").showModal();
+}
+
+function openInflationDialog(month = "") {
+  const entry = month ? (state.inflation?.rates ?? []).find((item) => item.month === month) : null;
+  document.getElementById("inflationDialogTitle").textContent = entry ? "Editar registro" : "Nuevo registro";
+  document.getElementById("inflationMonthOriginalInput").value = entry?.month ?? "";
+  document.getElementById("inflationMonthInput").value = entry?.month ?? "";
+  document.getElementById("inflationUsdInput").value = entry?.usd ?? "";
+  document.getElementById("inflationArsInput").value = entry?.ars ?? "";
+  document.getElementById("inflationDialog").showModal();
+}
+
+function saveInflationEntry() {
+  const originalMonth = document.getElementById("inflationMonthOriginalInput").value;
+  const month = getMonthStartIso(document.getElementById("inflationMonthInput").value);
+  const usd = toNumber(document.getElementById("inflationUsdInput").value, 0);
+  const ars = toNumber(document.getElementById("inflationArsInput").value, 0);
+
+  if (!month) {
+    alert("Indicá un mes válido.");
+    return;
+  }
+
+  let rates = [...(state.inflation?.rates ?? [])];
+  if (originalMonth) {
+    rates = rates.filter((entry) => entry.month !== originalMonth);
+  }
+  rates.push({ month, usd, ars });
+  state.inflation.rates = normalizeInflationRates(rates);
+  saveState();
+  document.getElementById("inflationDialog").close();
+  render();
+}
+
+function deleteInflationEntry(month) {
+  const confirmed = confirm("¿Eliminar este registro de inflación?");
+  if (!confirmed) return;
+  state.inflation.rates = (state.inflation?.rates ?? []).filter((entry) => entry.month !== month);
+  saveState();
+  render();
+}
+
+function openInflationImportDialog() {
+  document.getElementById("inflationFileInput").value = "";
+  document.getElementById("inflationImportStatus").textContent = "Cargá un archivo Excel con MonthYear, InflationDollar e InflationPesos.";
+  document.getElementById("inflationImportDialog").showModal();
+}
+
+async function importInflationFile() {
+  const file = document.getElementById("inflationFileInput").files?.[0];
+  if (!file) {
+    alert("Primero cargá un archivo Excel.");
+    return;
+  }
+
+  const status = document.getElementById("inflationImportStatus");
+  status.textContent = `Procesando ${file.name}...`;
+
+  try {
+    const rows = await parseInflationExcel(file);
+    if (!rows.length) throw new Error("No se encontraron filas válidas con MonthYear, InflationDollar e InflationPesos.");
+    state.inflation.rates = normalizeInflationRates([...(state.inflation?.rates ?? []), ...rows]);
+    saveState();
+    document.getElementById("inflationImportDialog").close();
+    render();
+  } catch (error) {
+    status.textContent = error.message ?? "No se pudo importar la inflación.";
+    alert(status.textContent);
+  }
+}
+
+async function parseInflationExcel(file) {
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const [firstSheetName] = workbook.SheetNames;
+  const sheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+  return normalizeInflationRates(
+    rows.map((row) => ({
+      month: parseSpreadsheetDate(getRowValueByHeaders(row, ["monthyear", "month year", "month", "fecha"])),
+      usd: parseLocaleNumber(getRowValueByHeaders(row, ["inflationdollar", "inflation dollar", "inflation dolar"])),
+      ars: parseLocaleNumber(getRowValueByHeaders(row, ["inflationpesos", "inflation pesos", "inflation peso"])),
+    })),
+  );
+}
+
+function syncCotizationsCurrencyFromInstrument() {
+  const instrument = findById("instruments", document.getElementById("cotizationsInstrumentInput").value);
+  document.getElementById("cotizationsCurrencyInput").value = normalizeCurrency(instrument?.currency);
+}
+
+async function importManualCotizations() {
+  const instrumentId = document.getElementById("cotizationsInstrumentInput").value;
+  const currency = normalizeCurrency(document.getElementById("cotizationsCurrencyInput").value);
+  const file = document.getElementById("cotizationsFileInput").files?.[0];
+  if (!instrumentId) {
+    alert("Primero elegí un instrumento.");
+    return;
+  }
+  if (!file) {
+    alert("Primero cargá un archivo Excel.");
+    return;
+  }
+
+  const instrument = findById("instruments", instrumentId);
+  const status = document.getElementById("cotizationsImportStatus");
+  status.textContent = `Procesando ${file.name}...`;
+
+  try {
+    const rows = await parseCotizationsExcel(file);
+    if (!rows.length) throw new Error("No se encontraron filas válidas con Fecha Cotización y Cierre.");
+    const latestRate = rows[rows.length - 1];
+    state.marketData.prices[instrumentId] = {
+      provider: "manual-file",
+      symbol: instrument?.name ?? "",
+      currency,
+      sourceFile: file.name,
+      rates: rows,
+      lastSyncAt: new Date().toISOString(),
+      lastError: "",
+    };
+    if (instrument) {
+      instrument.currency = currency;
+      instrument.quote = latestRate.close;
+      instrument.usesPlatformQuotes = false;
+      instrument.platformQuotes = {};
     }
-    return quotes;
-  }, {});
+    state.marketData.provider = "manual-file";
+    state.marketData.lastSyncAt = new Date().toISOString();
+    state.marketData.lastError = "";
+    saveState();
+    await persistManualCotizationsToServer();
+    render();
+    document.getElementById("cotizationsDialog").close();
+  } catch (error) {
+    status.textContent = error.message ?? "No se pudieron importar las cotizaciones.";
+    alert(status.textContent);
+  }
+}
+
+async function parseCotizationsExcel(file) {
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const [firstSheetName] = workbook.SheetNames;
+  const sheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false, range: 1 });
+  return normalizeHistoricalPriceRows(
+    rows
+      .map((row) => ({
+        date: parseSpreadsheetDate(getRowValueByHeaders(row, ["fecha cotizacion", "fecha de cotizacion", "fecha"])),
+        close: parseLocaleNumber(getRowValueByHeaders(row, ["cierre", "precio cierre", "close"])),
+      }))
+      .filter((row) => row.date && row.close > 0),
+  );
+}
+
+function getRowValueByHeaders(row, expectedHeaders) {
+  const entries = Object.entries(row).map(([key, value]) => [normalizeHeader(key), value]);
+  const headerMap = new Map(entries);
+  const matchedHeader = expectedHeaders.find((header) => headerMap.has(normalizeHeader(header)));
+  return matchedHeader ? headerMap.get(normalizeHeader(matchedHeader)) : "";
+}
+
+function parseSpreadsheetDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const parsed = parseStandardDate(text) || parseIolDate(text) || parseBmbDate(text) || parseBmbSimpleDate(text);
+  if (parsed) return parsed;
+  const excelDate = Number(text);
+  if (Number.isFinite(excelDate) && excelDate > 0 && XLSX.SSF) {
+    const parts = XLSX.SSF.parse_date_code(excelDate);
+    if (parts?.y && parts?.m && parts?.d) {
+      return `${String(parts.y).padStart(4, "0")}-${String(parts.m).padStart(2, "0")}-${String(parts.d).padStart(2, "0")}`;
+    }
+  }
+  return "";
+}
+
+async function clearAllManualCotizations() {
+  const confirmed = confirm("¿Limpiar todas las cotizaciones cargadas y reiniciar la cotización global de los instrumentos en 1?");
+  if (!confirmed) return;
+
+  state.marketData.provider = "manual-file";
+  state.marketData.prices = {};
+  state.marketData.lastSyncAt = new Date().toISOString();
+  state.marketData.lastError = "";
+  state.instruments = state.instruments.map((instrument) => ({
+    ...instrument,
+    quote: 1,
+    usesPlatformQuotes: false,
+    platformQuotes: {},
+  }));
+
+  saveState();
+  await persistManualCotizationsToServer();
+  render();
 }
 
 function deleteEntity(kind, id) {
@@ -2885,8 +3748,24 @@ function deleteHolding(id) {
 
 function fillSelect(elementId, items, selectedValue) {
   const select = document.getElementById(elementId);
+  if (!select) return;
   select.innerHTML = items.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("");
   select.value = selectedValue ?? items[0]?.id ?? "";
+}
+
+function fillMultiSelect(elementId, items, selectedValues = []) {
+  const select = document.getElementById(elementId);
+  if (!select) return;
+  const selectedSet = new Set(selectedValues?.length ? selectedValues : [items[0]?.id].filter(Boolean));
+  select.innerHTML = items.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join("");
+  [...select.options].forEach((option) => {
+    option.selected = selectedSet.has(option.value);
+  });
+}
+
+function getMultiSelectValues(select) {
+  const values = [...(select?.selectedOptions ?? [])].map((option) => option.value).filter(Boolean);
+  return values.length ? values : [state.funds[0]?.id].filter(Boolean);
 }
 
 function fillOptionalFundSelect(elementId, selectedValue = "") {
@@ -2936,7 +3815,7 @@ function renderQuotePreview() {
   const quantity = toNumber(document.getElementById("holdingQuantityInput").value, 0);
   const pendingValue = toNumber(document.getElementById("holdingPendingInput").value, 0);
   const rawAmount = quantity * pricing.quote;
-  const usdAmount = pricing.currency === "PESOS" ? rawAmount / state.settings.arsUsd : rawAmount;
+  const usdAmount = pricing.currency === "PESOS" ? rawAmount / getLatestBlueRate().sell : rawAmount;
   document.getElementById("quotePreview").textContent = instrument && type
     ? `Cotización aplicada: ${formatNumber.format(pricing.quote)} ${pricing.currency}. Tenencia: ${formatUsd.format(usdAmount)}. Pendiente por cobrar: ${formatUsd.format(pendingValue)}. Total estimado: ${formatUsd.format(usdAmount + pendingValue)}.`
     : "Seleccioná instrumento y tipo para calcular el monto estimado.";
@@ -2948,7 +3827,7 @@ function getHoldingUsdValue(holding) {
   if (!type || !instrument) return 0;
   const pricing = getPricing(instrument, type, holding.platformId);
   const amount = toNumber(holding.quantity, 0) * pricing.quote;
-  return pricing.currency === "PESOS" ? amount / toNumber(state.settings.arsUsd, 1) : amount;
+  return pricing.currency === "PESOS" ? amount / getLatestBlueRate().sell : amount;
 }
 
 function getHoldingPendingUsdValue(holding) {
@@ -2956,12 +3835,10 @@ function getHoldingPendingUsdValue(holding) {
 }
 
 function getPricing(instrument, type, platformId) {
-  const platformQuote = instrument?.usesPlatformQuotes ? toNumber(instrument.platformQuotes?.[platformId], 0) : 0;
-  const hasPlatformQuote = platformQuote > 0;
   const hasInstrumentQuote = instrument && toNumber(instrument.quote, 0) > 0;
   return {
     currency: hasInstrumentQuote ? instrument.currency : type?.currency ?? "DOLARES",
-    quote: hasPlatformQuote ? platformQuote : hasInstrumentQuote ? toNumber(instrument.quote, 0) : toNumber(type?.quote, 0),
+    quote: hasInstrumentQuote ? toNumber(instrument.quote, 0) : toNumber(type?.quote, 0),
   };
 }
 
@@ -3088,6 +3965,37 @@ function getFundTotals(fundId) {
   return calculateFundTotals().fundTotals.get(fundId) ?? { current: 0, pending: 0, value: 0 };
 }
 
+function getFundsTotals(fundIds = []) {
+  return fundIds.reduce((totals, fundId) => {
+    const fundTotals = getFundTotals(fundId);
+    return {
+      current: totals.current + fundTotals.current,
+      pending: totals.pending + fundTotals.pending,
+      value: totals.value + fundTotals.value,
+    };
+  }, { current: 0, pending: 0, value: 0 });
+}
+
+function getRetirementFunds(fundIds = []) {
+  return fundIds.map((fundId) => findById("funds", fundId)).filter(Boolean);
+}
+
+function getRetirementFundsLabel(funds) {
+  if (!funds.length) return "Sin fondo";
+  if (funds.length <= 2) return funds.map((fund) => fund.name).join(", ");
+  return `${funds.length} fondos`;
+}
+
+function normalizeRetirementFundIds(retirementSalary = {}) {
+  if (Array.isArray(retirementSalary.fundIds) && retirementSalary.fundIds.length) {
+    return retirementSalary.fundIds.filter((fundId) => typeof fundId === "string" && fundId);
+  }
+  if (typeof retirementSalary.fundId === "string" && retirementSalary.fundId) {
+    return [retirementSalary.fundId];
+  }
+  return [seedState.kpis.retirementSalary.fundIds[0]].filter(Boolean);
+}
+
 function addSplitValue(target, currentValue, pendingValue, share) {
   target.current += currentValue * share;
   target.pending += pendingValue * share;
@@ -3134,8 +4042,7 @@ function createPieChart(canvasId, series, filterKey) {
     }
     return items;
   });
-  charts.push(
-    new Chart(ctx, {
+  const chart = new Chart(ctx, {
       type: "doughnut",
       data: {
         labels: pieItems.map((item) => item.label),
@@ -3165,7 +4072,7 @@ function createPieChart(canvasId, series, filterKey) {
                   const value = item.value;
                   const percent = total ? `${((value / total) * 100).toFixed(1)}%` : "0%";
                   return {
-                    text: `${item.label}: ${percent}${item.pending > 0 ? ` · ${formatUsd.format(item.pending)} por cobrar` : ""}`,
+                    text: `${item.label}: ${percent}`,
                     fillStyle: getInteractiveColor(seriesColors[index], item),
                     strokeStyle: dashboardFilters[filterKey].has(item.id) ? "#17201d" : getInteractiveColor(seriesColors[index], item),
                     lineWidth: dashboardFilters[filterKey].has(item.id) ? 2 : 0,
@@ -3187,6 +4094,11 @@ function createPieChart(canvasId, series, filterKey) {
                 const percent = total ? ` (${((value / total) * 100).toFixed(1)}%)` : "";
                 return `${context.label} · ${kind}: ${formatUsd.format(value)}${percent}`;
               },
+              afterBody(items) {
+                const pieItem = pieItems[items[0]?.dataIndex];
+                if (!pieItem) return "";
+                return getDashboardPerformanceTooltipLines(series[pieItem.legendIndex], formatPercentOneDecimal);
+              },
             },
           },
         },
@@ -3200,8 +4112,9 @@ function createPieChart(canvasId, series, filterKey) {
           event.native.target.style.cursor = elements.length ? "pointer" : "default";
         },
       },
-    }),
-  );
+    });
+  bindDashboardChartContextMenu(chart, filterKey);
+  charts.push(chart);
 }
 
 function createBarChart(canvasId, series, filterKey) {
@@ -3209,8 +4122,7 @@ function createBarChart(canvasId, series, filterKey) {
   const total = series.reduce((sum, item) => sum + item.value, 0);
   const seriesColors = getSeriesColors(series);
   const pendingColors = seriesColors.map((color) => lightenColor(color, 0.58));
-  charts.push(
-    new Chart(ctx, {
+  const chart = new Chart(ctx, {
       type: "bar",
       data: {
         labels: series.map((item) => item.label),
@@ -3224,6 +4136,7 @@ function createBarChart(canvasId, series, filterKey) {
             filterIds: series.map((item) => item.id),
             borderRadius: 6,
             maxBarThickness: 54,
+            hidden: !dashboardBarDatasetVisibility.current,
           },
           {
             label: "Pendiente por cobrar",
@@ -3234,6 +4147,7 @@ function createBarChart(canvasId, series, filterKey) {
             filterIds: series.map((item) => item.id),
             borderRadius: 6,
             maxBarThickness: 54,
+            hidden: !dashboardBarDatasetVisibility.pending,
           },
         ],
       },
@@ -3245,7 +4159,12 @@ function createBarChart(canvasId, series, filterKey) {
             display: true,
             position: "bottom",
             labels: { boxWidth: 10, usePointStyle: true },
-            onClick() {},
+            onClick(_event, legendItem) {
+              const key = legendItem.datasetIndex === 0 ? "current" : "pending";
+              dashboardBarDatasetVisibility[key] = !dashboardBarDatasetVisibility[key];
+              renderCharts();
+              refreshIcons();
+            },
           },
           title: { display: false },
           tooltip: {
@@ -3258,7 +4177,9 @@ function createBarChart(canvasId, series, filterKey) {
               afterBody(items) {
                 const index = items[0]?.dataIndex;
                 if (index === undefined) return "";
-                return `Total estimado: ${formatUsd.format(series[index].value)}`;
+                const lines = [`Total estimado: ${formatUsd.format(series[index].value)}`];
+                lines.push(...getDashboardPerformanceTooltipLines(series[index], formatPercentOneDecimal));
+                return lines;
               },
             },
           },
@@ -3289,8 +4210,9 @@ function createBarChart(canvasId, series, filterKey) {
           },
         },
       },
-    }),
-  );
+    });
+  bindDashboardChartContextMenu(chart, filterKey);
+  charts.push(chart);
 }
 
 function isEntityInUse(kind, id) {
@@ -3301,9 +4223,10 @@ function isEntityInUse(kind, id) {
   };
 
   if (kind === "funds") {
+    const retirementFundIds = new Set(state.kpis.retirementSalary.fundIds ?? []);
     return (
       state.holdings.some((holding) => holding.allocations?.some((allocation) => allocation.fundId === id)) ||
-      state.kpis.retirementSalary.fundId === id ||
+      retirementFundIds.has(id) ||
       state.kpis.indicators.some((indicator) => indicator.fundId === id) ||
       state.transactions.some((transaction) => transaction.fundId === id)
     );
@@ -3997,6 +4920,21 @@ function todayIsoDate() {
   return localDate.toISOString().slice(0, 10);
 }
 
+function addDaysIso(date, days) {
+  const parsedDate = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsedDate.getTime())) return date;
+  parsedDate.setUTCDate(parsedDate.getUTCDate() + days);
+  return parsedDate.toISOString().slice(0, 10);
+}
+
+function dateToUnixSeconds(date) {
+  return Math.floor(new Date(`${date}T00:00:00Z`).getTime() / 1000);
+}
+
+function unixSecondsToIsoDate(timestamp) {
+  return new Date(timestamp * 1000).toISOString().slice(0, 10);
+}
+
 function getCurrentHoldingValueForInstrument(instrumentId, platformId) {
   return state.holdings
     .filter((holding) => holding.instrumentId === instrumentId && holding.platformId === platformId)
@@ -4277,3 +5215,6 @@ window.deleteTransaction = deleteTransaction;
 window.openIndicatorDialog = openIndicatorDialog;
 window.moveIndicator = moveIndicator;
 window.deleteIndicator = deleteIndicator;
+window.openCotizationsDialog = openCotizationsDialog;
+window.openInflationDialog = openInflationDialog;
+window.deleteInflationEntry = deleteInflationEntry;

@@ -1,0 +1,39 @@
+<section class="section active" id="kpisSection">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Indicators</p>
+      <h2>KPIs</h2>
+    </div>
+  </div>
+  <div class="kpi-layout">
+    <article class="master-panel retirement-panel">
+      <div class="panel-title">
+        <h3>Estimated Retirement Salary</h3>
+      </div>
+      <div class="retirement-result">
+        <span>Salario mensual estimado</span>
+        <strong id="retirementSalaryValue">$0</strong>
+        <small id="retirementSalaryMeta">Regla anual</small>
+      </div>
+      <div class="form-grid compact-form">
+        <label class="span-2">
+          Fondos
+          <select id="retirementFundInput" multiple size="5"></select>
+        </label>
+        <label>
+          Porcentaje anual
+          <input id="retirementPercentInput" type="number" min="0" step="0.01" />
+        </label>
+      </div>
+    </article>
+
+    <article class="master-panel">
+      <div class="panel-title">
+        <h3>Configuración de indicadores</h3>
+      </div>
+      <p class="panel-copy">Estimated Retirement Salary toma la tenencia actual de los fondos seleccionados, aplica un porcentaje anual esperado y la convierte en un ingreso mensual estimado.</p>
+      <p class="panel-copy">Los indicators comparan cada fondo contra una meta objetivo para mostrar cuánto capital ya acumulaste y cuánto representarías al cobrar lo pendiente.</p>
+    </article>
+  </div>
+  <div class="indicator-grid" id="indicatorGrid"></div>
+</section>

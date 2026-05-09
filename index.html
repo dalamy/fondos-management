@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js" defer></script>
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
-    <script src="app.js" defer></script>
+    <script type="module" src="app.js"></script>
   </head>
   <body>
     <div class="app-shell">
@@ -58,8 +58,8 @@
       <main class="main">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Cartera global</p>
-            <h1>Administración de fondos e instrumentos</h1>
+            <p class="eyebrow">Cartera</p>
+            <h1>Resúmen</h1>
           </div>
           <div class="topbar-actions">
             <input id="importDataInput" type="file" accept="application/json,.json" hidden />
@@ -77,270 +77,30 @@
           </div>
         </header>
 
-        <section class="kpi-band" aria-label="Resumen de cartera">
+        <section class="kpi-band" id="dashboardSummaryBand" aria-label="Resumen de cartera">
           <div class="kpi primary">
-            <span>Tenencia global estimada</span>
+            <span>Tenencia estimada</span>
             <strong id="globalTotal">$0</strong>
             <small id="globalTotalMeta">Calculada en USD</small>
           </div>
           <div class="kpi">
-            <span>Instrumentos</span>
-            <strong id="instrumentCount">0</strong>
-            <small>Activos registrados</small>
+            <span>Rendimiento general</span>
+            <strong id="portfolioReturnValue">s/d</strong>
+            <small id="portfolioReturnMeta">TIR s/d</small>
           </div>
           <div class="kpi">
-            <span>Tenencias</span>
-            <strong id="holdingCount">0</strong>
-            <small>Posiciones cargadas</small>
+            <span>Estimated Retirement Salary</span>
+            <strong id="dashboardRetirementValue">$0</strong>
+            <small id="dashboardRetirementMeta">Sin fondo configurado</small>
           </div>
           <div class="kpi config-kpi">
-            <label for="arsUsdInput">PESOS/DOLARES</label>
-            <div class="inline-input">
-              <span>$</span>
-              <input id="arsUsdInput" inputmode="decimal" type="number" min="1" step="0.01" />
-            </div>
-            <small>Usado para convertir PESOS a USD</small>
+            <span>$/Dollar</span>
+            <strong id="arsUsdDisplay">$0</strong>
+            <small id="arsUsdMeta">Sin fecha</small>
           </div>
         </section>
 
-        <section class="section active" id="dashboardSection">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Visualización</p>
-              <h2>Distribución de cartera</h2>
-            </div>
-          </div>
-          <div class="dashboard-filter-bar" id="dashboardFilterBar" hidden></div>
-          <div class="chart-grid" id="chartGrid"></div>
-        </section>
-
-        <section class="section" id="kpisSection">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Indicators</p>
-              <h2>KPIs</h2>
-            </div>
-          </div>
-          <div class="kpi-layout">
-            <article class="master-panel retirement-panel">
-              <div class="panel-title">
-                <h3>Estimated Retirement Salary</h3>
-              </div>
-              <div class="retirement-result">
-                <span>Salario mensual estimado</span>
-                <strong id="retirementSalaryValue">$0</strong>
-                <small id="retirementSalaryMeta">Regla anual</small>
-              </div>
-              <div class="form-grid compact-form">
-                <label>
-                  Fondo
-                  <select id="retirementFundInput"></select>
-                </label>
-                <label>
-                  Porcentaje anual
-                  <input id="retirementPercentInput" type="number" min="0" step="0.01" />
-                </label>
-              </div>
-            </article>
-
-            <article class="master-panel">
-              <div class="panel-title">
-                <h3>Configuración de indicadores</h3>
-                <button class="primary-button" id="newIndicatorButton" type="button">
-                  <i data-lucide="plus"></i>
-                  Nuevo indicador
-                </button>
-              </div>
-              <p class="panel-copy">Ordená y ajustá tus indicadores desde cada tarjeta.</p>
-            </article>
-          </div>
-          <div class="indicator-grid" id="indicatorGrid"></div>
-        </section>
-
-        <section class="section" id="holdingsSection">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Operación diaria</p>
-              <h2>Tenencias</h2>
-            </div>
-            <button class="primary-button" id="newHoldingButton" type="button">
-              <i data-lucide="plus"></i>
-              Nueva tenencia
-            </button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Instrumento</th>
-                  <th>Plataforma</th>
-                  <th>Tipo</th>
-                  <th>Cantidad</th>
-                  <th>Asignación</th>
-                  <th>Tenencia USD</th>
-                  <th>Pendiente por cobrar</th>
-                  <th>Total estimado</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="holdingsTable"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="section" id="transactionsSection">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Historial operativo</p>
-              <h2>Transacciones</h2>
-            </div>
-            <button class="primary-button" id="newTransactionButton" type="button">
-              <i data-lucide="plus"></i>
-              Nueva transacción
-            </button>
-          </div>
-          <div class="transaction-import-grid">
-            <article class="master-panel">
-              <div class="panel-title">
-                <h3>Importar movimientos</h3>
-              </div>
-              <div class="form-grid compact-form">
-                <label>
-                  Plataforma
-                  <select id="transactionPlatformInput"></select>
-                </label>
-                <label>
-                  Formato
-                  <select id="transactionAdapterInput">
-                    <option value="standard">Formato estándar curado</option>
-                    <option value="bmb">Bull Market Brokers</option>
-                    <option value="bmb-simple">Bull Market Brokers simplificado</option>
-                    <option value="iol">Invertir Online</option>
-                    <option value="iol-dividends">Invertir Online Dividendos</option>
-                  </select>
-                </label>
-                <label class="span-2">
-                  Archivo CSV/XLSX
-                  <input id="transactionFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
-                </label>
-              </div>
-              <div class="import-actions">
-                <button class="primary-button" id="importTransactionsButton" type="button">
-                  <i data-lucide="file-up"></i>
-                  Importar transacciones
-                </button>
-                <button class="ghost-button" id="downloadTransactionTemplateButton" type="button">
-                  <i data-lucide="file-down"></i>
-                  Descargar template estándar
-                </button>
-                <button class="ghost-button danger-button" id="clearTransactionsButton" type="button">
-                  <i data-lucide="eraser"></i>
-                  Limpiar transacciones
-                </button>
-                <span class="quote-preview" id="transactionImportStatus">Elegí una plataforma y cargá un archivo de movimientos.</span>
-              </div>
-            </article>
-            <article class="master-panel">
-              <div class="panel-title">
-                <h3>Rendimiento por instrumento</h3>
-              </div>
-              <div class="performance-list" id="instrumentPerformanceList"></div>
-            </article>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Plataforma</th>
-                  <th>Fondo</th>
-                  <th>Estado</th>
-                  <th>Tipo</th>
-                  <th>Instrumento</th>
-                  <th>Cantidad</th>
-                  <th>Precio</th>
-                  <th>Importe</th>
-                  <th>Cuenta</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="transactionsTable"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="section" id="returnsSection">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Análisis temporal</p>
-              <h2>Rendimientos</h2>
-            </div>
-          </div>
-          <div class="returns-toolbar">
-            <label>
-              Tipo de instrumento
-              <select id="returnsTypeFilterInput"></select>
-            </label>
-            <label class="checkbox-label returns-inflation-toggle">
-              <input id="inflationAdjustmentInput" type="checkbox" />
-              Ajustar movimientos por inflación
-            </label>
-            <button class="secondary-button returns-edit-funds-button" id="toggleReturnFundControlsButton" type="button">
-              <i data-lucide="sliders-horizontal"></i>
-              Editar fondos
-            </button>
-          </div>
-          <div class="fund-returns-grid" id="fundReturnsGrid"></div>
-          <div class="fund-evolution-grid" id="fundEvolutionGrid"></div>
-          <div class="returns-grid" id="returnsGrid"></div>
-        </section>
-
-        <section class="section" id="mastersSection">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Configuración</p>
-              <h2>CRUDs globales</h2>
-            </div>
-          </div>
-          <div class="master-grid">
-            <article class="master-panel" data-entity="platforms">
-              <div class="panel-title">
-                <h3>Plataformas</h3>
-                <button class="icon-button add-entity" type="button" title="Agregar plataforma">
-                  <i data-lucide="plus"></i>
-                </button>
-              </div>
-              <div class="entity-list" id="platformsList"></div>
-            </article>
-            <article class="master-panel" data-entity="instrumentTypes">
-              <div class="panel-title">
-                <h3>Tipos de instrumento</h3>
-                <button class="icon-button add-entity" type="button" title="Agregar tipo">
-                  <i data-lucide="plus"></i>
-                </button>
-              </div>
-              <div class="entity-list" id="instrumentTypesList"></div>
-            </article>
-            <article class="master-panel" data-entity="instruments">
-              <div class="panel-title">
-                <h3>Instrumentos</h3>
-                <button class="icon-button add-entity" type="button" title="Agregar instrumento">
-                  <i data-lucide="plus"></i>
-                </button>
-              </div>
-              <div class="entity-list" id="instrumentsList"></div>
-            </article>
-            <article class="master-panel" data-entity="funds">
-              <div class="panel-title">
-                <h3>Fondos</h3>
-                <button class="icon-button add-entity" type="button" title="Agregar fondo">
-                  <i data-lucide="plus"></i>
-                </button>
-              </div>
-              <div class="entity-list" id="fundsList"></div>
-            </article>
-          </div>
-        </section>
+        <div id="sectionViewHost" class="section-view-host"></div>
       </main>
     </div>
 
@@ -450,6 +210,103 @@
         <div class="modal-actions">
           <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
           <button class="primary-button" id="saveHoldingButton" value="default" type="submit">Guardar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="cotizationsDialog">
+      <form method="dialog" id="cotizationsForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Cotizaciones</p>
+            <h2>Cargar cotizaciones</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="form-grid">
+          <label>
+            Instrumento
+            <select id="cotizationsInstrumentInput" required></select>
+          </label>
+          <label>
+            Moneda
+            <select id="cotizationsCurrencyInput" required>
+              <option value="DOLARES">DOLARES</option>
+              <option value="PESOS">PESOS</option>
+            </select>
+          </label>
+          <label class="span-2">
+            Archivo Excel
+            <input id="cotizationsFileInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" required />
+          </label>
+        </div>
+        <div class="quote-preview" id="cotizationsImportStatus">Seleccioná un instrumento, una moneda y un archivo Excel con las columnas Fecha Cotización y Cierre.</div>
+        <div class="modal-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" id="saveCotizationsButton" value="default" type="submit">
+            <i data-lucide="save"></i>
+            Importar cotizaciones
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="inflationDialog">
+      <form method="dialog" id="inflationForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Inflación</p>
+            <h2 id="inflationDialogTitle">Nuevo registro</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <input id="inflationMonthOriginalInput" type="hidden" />
+        <div class="form-grid">
+          <label>
+            MonthYear
+            <input id="inflationMonthInput" type="date" required />
+          </label>
+          <label>
+            InflationDollar
+            <input id="inflationUsdInput" type="number" step="0.01" required />
+          </label>
+          <label>
+            InflationPesos
+            <input id="inflationArsInput" type="number" step="0.01" required />
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Guardar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="inflationImportDialog">
+      <form method="dialog" id="inflationImportForm" class="modal-card">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Inflación</p>
+            <h2>Importar inflación</h2>
+          </div>
+          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div class="form-grid">
+          <label class="span-2">
+            Archivo Excel
+            <input id="inflationFileInput" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" required />
+          </label>
+        </div>
+        <div class="quote-preview" id="inflationImportStatus">Cargá un archivo Excel con MonthYear, InflationDollar e InflationPesos.</div>
+        <div class="modal-actions">
+          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="primary-button" value="default" type="submit">Importar</button>
         </div>
       </form>
     </dialog>

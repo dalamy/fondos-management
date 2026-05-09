@@ -1,0 +1,186 @@
+<section class="section active" id="mastersSection">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Configuración</p>
+      <h2>CRUDs globales</h2>
+    </div>
+  </div>
+  <div class="master-sections">
+    <details class="master-section" open>
+      <summary>
+        <div>
+          <h3>Plataformas</h3>
+          <p>Listado completo de plataformas registradas.</p>
+        </div>
+        <div class="master-section-actions">
+          <button class="icon-button add-entity" data-entity="platforms" type="button" title="Agregar plataforma">
+            <i data-lucide="plus"></i>
+          </button>
+        </div>
+      </summary>
+      <div class="table-wrap master-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Descripción</th>
+              <th>Color</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="platformsTable"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="master-section" open>
+      <summary>
+        <div>
+          <h3>Tipos de Instrumentos</h3>
+          <p>Definiciones generales usadas por las tenencias y transacciones.</p>
+        </div>
+        <div class="master-section-actions">
+          <button class="icon-button add-entity" data-entity="instrumentTypes" type="button" title="Agregar tipo de instrumento">
+            <i data-lucide="plus"></i>
+          </button>
+        </div>
+      </summary>
+      <div class="table-wrap master-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Descripción</th>
+              <th>Color</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="instrumentTypesTable"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="master-section" open>
+      <summary>
+        <div>
+          <h3>Instrumentos</h3>
+          <p>Instrumentos operables con su cotización global actual.</p>
+        </div>
+        <div class="master-section-actions">
+          <button class="icon-button add-entity" data-entity="instruments" type="button" title="Agregar instrumento">
+            <i data-lucide="plus"></i>
+          </button>
+        </div>
+      </summary>
+      <div class="table-wrap master-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Descripción</th>
+              <th>Moneda</th>
+              <th>Cotización</th>
+              <th>Color</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="instrumentsTable"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="master-section" open>
+      <summary>
+        <div>
+          <h3>Fondos</h3>
+          <p>Fondos disponibles para asignar posiciones y KPIs.</p>
+        </div>
+        <div class="master-section-actions">
+          <button class="icon-button add-entity" data-entity="funds" type="button" title="Agregar fondo">
+            <i data-lucide="plus"></i>
+          </button>
+        </div>
+      </summary>
+      <div class="table-wrap master-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Descripción</th>
+              <th>Color</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="fundsTable"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="master-section" open>
+      <summary>
+        <div>
+          <h3>Cotizaciones</h3>
+          <p>Series históricas manuales por instrumento.</p>
+        </div>
+        <div class="master-section-actions">
+          <button class="ghost-button danger-button" id="clearCotizationsButton" type="button">
+            <i data-lucide="eraser"></i>
+            Limpiar
+          </button>
+          <button class="primary-button" id="openCotizationsDialogButton" type="button">
+            <i data-lucide="file-up"></i>
+            Cargar
+          </button>
+        </div>
+      </summary>
+      <div class="table-wrap master-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Instrumento</th>
+              <th>Moneda</th>
+              <th>Registros</th>
+              <th>Última fecha</th>
+              <th>Último cierre</th>
+              <th>Archivo</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="cotizationsTable"></tbody>
+        </table>
+      </div>
+    </details>
+
+    <details class="master-section" open>
+      <summary>
+        <div>
+          <h3>Inflación</h3>
+          <p>Inflación mensual en dólares y pesos usada por rendimientos.</p>
+        </div>
+        <div class="master-section-actions">
+          <button class="ghost-button" id="openInflationImportDialogButton" type="button">
+            <i data-lucide="file-up"></i>
+            Cargar
+          </button>
+          <button class="primary-button" id="newInflationButton" type="button">
+            <i data-lucide="plus"></i>
+            Nueva
+          </button>
+        </div>
+      </summary>
+      <div class="table-wrap master-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Mes</th>
+              <th>Inflación USD</th>
+              <th>Inflación ARS</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="inflationTable"></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+</section>

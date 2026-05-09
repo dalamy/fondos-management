@@ -280,8 +280,25 @@ textarea:focus {
   display: none;
 }
 
+.section-view-host {
+  min-height: 320px;
+}
+
 .section.active {
   display: block;
+  animation: section-enter 180ms ease-out;
+}
+
+@keyframes section-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .section-heading {
@@ -301,12 +318,26 @@ textarea:focus {
 .chart-section-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   margin-bottom: 12px;
 }
 
+.chart-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .chart-section h3 {
   margin-bottom: 0;
+}
+
+.chart-reset-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.8rem;
 }
 
 .filter-count {
@@ -400,6 +431,10 @@ textarea:focus {
   gap: 18px;
 }
 
+.retirement-panel select[multiple] {
+  min-height: 140px;
+}
+
 .retirement-result {
   border-radius: var(--radius);
   background: #10231f;
@@ -439,11 +474,44 @@ textarea:focus {
   align-items: start;
 }
 
+.inline-indicator-form {
+  align-content: start;
+}
+
+.inline-indicator-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .transaction-import-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 0.9fr) minmax(360px, 1.1fr);
+  grid-template-columns: minmax(320px, 1fr);
   gap: 16px;
   margin-bottom: 18px;
+}
+
+.transactions-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 16px;
+  padding: 12px;
+}
+
+.transactions-filters label {
+  display: grid;
+  gap: 6px;
+  color: #424c47;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.transactions-filter-actions {
+  display: flex;
+  align-items: end;
 }
 
 .import-actions {
@@ -456,28 +524,6 @@ textarea:focus {
   margin-top: 0;
 }
 
-.performance-list {
-  display: grid;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.performance-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px;
-}
-
-.performance-metrics {
-  display: grid;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  text-align: right;
-}
 
 .returns-grid {
   display: grid;
@@ -851,6 +897,13 @@ textarea:focus {
   overflow: hidden;
 }
 
+.gauge-card-create {
+  grid-template-rows: auto;
+  aspect-ratio: auto;
+  align-content: start;
+  border-style: dashed;
+}
+
 .gauge-card-header {
   display: flex;
   align-items: flex-start;
@@ -1019,8 +1072,81 @@ tr:last-child td {
   gap: 16px;
 }
 
+.master-sections {
+  display: grid;
+  gap: 14px;
+}
+
+.master-section {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.master-section summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.master-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.master-section summary h3 {
+  margin: 0;
+}
+
+.master-section summary p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.master-section[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.master-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .master-panel {
   padding: 16px;
+}
+
+.panel-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.master-table-wrap {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.table-title-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.table-color-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .entity-list {
@@ -1103,6 +1229,10 @@ tr:last-child td {
   text-align: center;
 }
 
+.master-table-wrap .empty-state {
+  margin: 8px 0;
+}
+
 .modal {
   width: min(760px, calc(100vw - 30px));
   border: none;
@@ -1161,6 +1291,18 @@ tr:last-child td {
 
 .show-quote-fields .quote-only {
   display: grid !important;
+}
+
+@media (max-width: 900px) {
+  .master-section summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .master-section-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 .instrument-only {
@@ -1291,13 +1433,8 @@ tr:last-child td {
   .form-grid,
   .allocation-row,
   .platform-quote-grid,
-  .performance-item,
   .indicator-grid {
     grid-template-columns: 1fr;
-  }
-
-  .performance-metrics {
-    text-align: left;
   }
 
   .return-panel-header {

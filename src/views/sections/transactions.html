@@ -1,0 +1,134 @@
+<section class="section active" id="transactionsSection">
+  <div class="section-heading">
+    <div>
+      <p class="eyebrow">Historial operativo</p>
+      <h2>Transacciones</h2>
+    </div>
+    <button class="primary-button" id="newTransactionButton" type="button">
+      <i data-lucide="plus"></i>
+      Nueva transacción
+    </button>
+  </div>
+  <div class="transaction-import-grid">
+    <article class="master-panel">
+      <div class="panel-title">
+        <h3>Importar movimientos</h3>
+      </div>
+      <div class="form-grid compact-form">
+        <label>
+          Plataforma
+          <select id="transactionPlatformInput"></select>
+        </label>
+        <label>
+          Formato
+          <select id="transactionAdapterInput">
+            <option value="standard">Formato estándar curado</option>
+            <option value="bmb">Bull Market Brokers</option>
+            <option value="bmb-simple">Bull Market Brokers simplificado</option>
+            <option value="iol">Invertir Online</option>
+            <option value="iol-dividends">Invertir Online Dividendos</option>
+          </select>
+        </label>
+        <label class="span-2">
+          Archivo CSV/XLSX
+          <input id="transactionFileInput" type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" />
+        </label>
+      </div>
+      <div class="import-actions">
+        <button class="primary-button" id="importTransactionsButton" type="button">
+          <i data-lucide="file-up"></i>
+          Importar transacciones
+        </button>
+        <button class="ghost-button" id="downloadTransactionTemplateButton" type="button">
+          <i data-lucide="file-down"></i>
+          Descargar template estándar
+        </button>
+        <button class="ghost-button danger-button" id="clearTransactionsButton" type="button">
+          <i data-lucide="eraser"></i>
+          Limpiar transacciones
+        </button>
+        <span class="quote-preview" id="transactionImportStatus">Elegí una plataforma y cargá un archivo de movimientos.</span>
+      </div>
+    </article>
+  </div>
+  <div class="transactions-filters" id="transactionsFilters">
+    <label>
+      Fecha desde
+      <input id="transactionTradeDateFromFilter" type="date" />
+    </label>
+    <label>
+      Fecha hasta
+      <input id="transactionTradeDateToFilter" type="date" />
+    </label>
+    <label>
+      Liquidación desde
+      <input id="transactionSettlementDateFromFilter" type="date" />
+    </label>
+    <label>
+      Liquidación hasta
+      <input id="transactionSettlementDateToFilter" type="date" />
+    </label>
+    <label>
+      Plataforma
+      <select id="transactionPlatformFilter"></select>
+    </label>
+    <label>
+      Fondo
+      <select id="transactionFundFilter"></select>
+    </label>
+    <label>
+      Estado
+      <select id="transactionStatusFilter"></select>
+    </label>
+    <label>
+      Tipo
+      <select id="transactionKindFilter"></select>
+    </label>
+    <label>
+      Instrumento
+      <input id="transactionInstrumentFilter" type="text" placeholder="Nombre o símbolo" />
+    </label>
+    <label>
+      Cantidad
+      <input id="transactionQuantityFilter" type="text" placeholder="Valor" />
+    </label>
+    <label>
+      Precio
+      <input id="transactionPriceFilter" type="text" placeholder="Valor" />
+    </label>
+    <label>
+      Importe
+      <input id="transactionAmountFilter" type="text" placeholder="Valor" />
+    </label>
+    <label>
+      Cuenta
+      <input id="transactionAccountFilter" type="text" placeholder="Moneda o cuenta" />
+    </label>
+    <div class="transactions-filter-actions">
+      <button class="ghost-button" id="clearTransactionFiltersButton" type="button">
+        <i data-lucide="x-circle"></i>
+        Limpiar filtros
+      </button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Plataforma</th>
+          <th>Fondo</th>
+          <th>Estado</th>
+          <th>Tipo</th>
+          <th>Instrumento</th>
+          <th>Cantidad</th>
+          <th>Precio</th>
+          <th>Importe</th>
+          <th>Cuenta</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="transactionsTable"></tbody>
+    </table>
+  </div>
+</section>
