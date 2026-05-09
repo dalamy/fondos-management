@@ -1,20 +1,33 @@
 import { getSectionById, getSectionByPath, normalizePath } from "./sections/index.js";
+import { getHashRoutePath, prefersHashRouting, stripAppRoot, toAppHistoryPath } from "./core/runtime-paths.js";
 
 export function createRouter({ onSectionChange }) {
+  const useHashRouting = prefersHashRouting();
+
   function syncDom(section) {
     document.querySelectorAll(".nav-item").forEach((item) => {
       item.classList.toggle("active", item.dataset.section === section.id);
     });
   }
 
+  function getCurrentPath() {
+    return useHashRouting
+      ? getHashRoutePath()
+      : normalizePath(stripAppRoot(window.location.pathname));
+  }
+
   async function applySection(section, { replace = false, updateHistory = true } = {}) {
     syncDom(section);
     if (updateHistory) {
       const targetPath = normalizePath(section.path);
-      const currentPath = normalizePath(window.location.pathname);
-      if (targetPath !== currentPath) {
+      const currentPath = getCurrentPath();
+      const needsInitialHash = useHashRouting && !window.location.hash;
+      if (targetPath !== currentPath || needsInitialHash) {
         const method = replace ? "replaceState" : "pushState";
-        window.history[method]({ sectionId: section.id }, "", targetPath);
+        const runtimePath = useHashRouting
+          ? `${toAppHistoryPath("/")}#${targetPath}`
+          : toAppHistoryPath(targetPath);
+        window.history[method]({ sectionId: section.id }, "", runtimePath);
       }
     }
     await onSectionChange(section);
@@ -25,7 +38,7 @@ export function createRouter({ onSectionChange }) {
   }
 
   async function handleLocationChange({ replace = false } = {}) {
-    await applySection(getSectionByPath(window.location.pathname), { replace, updateHistory: false });
+    await applySection(getSectionByPath(getCurrentPath()), { replace, updateHistory: useHashRouting });
   }
 
   function start() {
@@ -47,7 +60,7 @@ export function createRouter({ onSectionChange }) {
     start,
     navigateToSection,
     getCurrentSection() {
-      return getSectionByPath(window.location.pathname);
+      return getSectionByPath(getCurrentPath());
     },
   };
 }

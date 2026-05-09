@@ -2,6 +2,7 @@ import { createRouter } from "./src/app/router.js";
 import { buildDashboardChartSpecs, getDashboardPerformanceTooltipLines, renderDashboardSummary } from "./src/app/sections/dashboard-view.js";
 import { getSectionById } from "./src/app/sections/index.js";
 import { bindOnce } from "./src/app/core/dom.js";
+import { prefersHashRouting } from "./src/app/core/runtime-paths.js";
 import { loadStoredState, saveStoredState } from "./src/app/core/store.js";
 import { loadSectionTemplate as loadSectionTemplateIntoHost } from "./src/app/core/view-loader.js";
 
@@ -769,6 +770,7 @@ async function syncBlueRatesFromBluelytics() {
 }
 
 async function loadManualCotizationsFromServer() {
+  if (prefersHashRouting()) return;
   try {
     const response = await fetch(MANUAL_COTIZATIONS_API_URL, { cache: "no-store" });
     const payload = await response.json();
@@ -871,6 +873,12 @@ function buildManualCotizationsStore() {
 }
 
 async function persistManualCotizationsToServer() {
+  if (prefersHashRouting()) {
+    state.marketData.lastSyncAt = new Date().toISOString();
+    state.marketData.lastError = "";
+    saveState();
+    return;
+  }
   const response = await fetch(MANUAL_COTIZATIONS_API_URL, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
