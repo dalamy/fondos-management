@@ -42,9 +42,9 @@ const seedInflationRates = [
 
 const seedState = {
   settings: {
-    arsUsd: 1000,
+    arsUsd: 1300,
     applyInflationAdjustment: false,
-    returnFundOrder: [],
+    returnFundOrder: ["fund-retiro", "fund-ahorros", "fund-inversiones", "fund-emergencia"],
     returnPortfolioExcludedFundIds: [],
   },
   fxRates: {
@@ -65,34 +65,346 @@ const seedState = {
   },
   kpis: {
     retirementSalary: {
-      fundIds: ["fund-general"],
+      fundIds: ["fund-retiro"],
       annualPercent: 3.5,
     },
     indicators: [
       {
-        id: "indicator-general",
-        name: "Meta ejemplo",
-        fundId: "fund-general",
-        maxAmount: 2500,
+        id: "indicator-emergencia",
+        name: "Colchón de emergencia",
+        fundId: "fund-emergencia",
+        maxAmount: 5000,
+      },
+      {
+        id: "indicator-retiro",
+        name: "Objetivo retiro",
+        fundId: "fund-retiro",
+        maxAmount: 7000,
+      },
+      {
+        id: "indicator-inversiones",
+        name: "Capital para invertir",
+        fundId: "fund-inversiones",
+        maxAmount: 4000,
       },
     ],
   },
   platforms: [
-    { id: "plat-demo", name: "Cuenta ejemplo", description: "Plataforma inicial de muestra", color: "#0f766e" },
+    { id: "plat-iol", name: "IOL", description: "Broker para ETF y FCI", color: "#0891b2" },
+    { id: "plat-bmb", name: "BMB", description: "Broker para bonos y CEDEAR", color: "#2563eb" },
+    { id: "plat-nexo", name: "NEXO", description: "Cuenta para cripto y dólares digitales", color: "#475569" },
+    { id: "plat-sobre", name: "SOBRE", description: "Reserva en efectivo separada", color: "#d6a51f" },
   ],
   instrumentTypes: [
-    { id: "type-liquid", name: "LIQUID", description: "Efectivo y liquidez", currency: "DOLARES", quote: 1, color: "#2563eb" },
+    { id: "type-etf", name: "ETF", description: "ETF y CEDEAR para largo plazo", currency: "DOLARES", quote: 37, color: "#0f766e" },
+    { id: "type-bono", name: "BONO", description: "Bonos soberanos en dólares", currency: "DOLARES", quote: 64, color: "#2563eb" },
+    { id: "type-fci", name: "FCI", description: "Fondo conservador en pesos", currency: "PESOS", quote: 169, color: "#dc2626" },
+    { id: "type-crypto", name: "CRYPTO", description: "Cripto y dólares digitales", currency: "DOLARES", quote: 73053, color: "#d6a51f" },
+    { id: "type-liquid", name: "LIQUID", description: "Efectivo y liquidez", currency: "DOLARES", quote: 1, color: "#16a34a" },
   ],
   instruments: [
-    { id: "inst-usd-demo", name: "USD ejemplo", description: "Saldo inicial de muestra", currency: "DOLARES", quote: 1, color: "#7c3aed" },
+    { id: "inst-spy", name: "SPY", description: "ETF del S&P 500", currency: "DOLARES", quote: 38.45, color: "" },
+    { id: "inst-qqq", name: "QQQ", description: "ETF del Nasdaq 100", currency: "DOLARES", quote: 37.01, color: "" },
+    { id: "inst-al30", name: "AL30", description: "Bono soberano AL30", currency: "DOLARES", quote: 64.29, color: "" },
+    { id: "inst-brkb", name: "BRKB", description: "Berkshire Hathaway", currency: "DOLARES", quote: 22.7, color: "" },
+    { id: "inst-prmcapb", name: "PRMCAPB", description: "FCI conservador en pesos", currency: "PESOS", quote: 169.02, color: "" },
+    { id: "inst-btc", name: "BTC", description: "Bitcoin", currency: "DOLARES", quote: 73053.88808, color: "#d6a51f" },
+    { id: "inst-usdt", name: "USDT", description: "Dólar digital estable", currency: "DOLARES", quote: 1, color: "#0f766e" },
+    { id: "inst-cash-usd", name: "CASH DOLARES", description: "Efectivo en dólares", currency: "DOLARES", quote: 1, color: "#16a34a" },
   ],
   funds: [
-    { id: "fund-general", name: "General", description: "Fondo inicial de ejemplo", color: "#0f766e" },
+    { id: "fund-retiro", name: "Retiro", description: "Objetivo de largo plazo", color: "#db2777" },
+    { id: "fund-ahorros", name: "Ahorros", description: "Reserva para metas cercanas", color: "#16a34a" },
+    { id: "fund-inversiones", name: "Inversiones", description: "Capital para crecer", color: "#7c3aed" },
+    { id: "fund-emergencia", name: "Emergencia", description: "Colchón para imprevistos", color: "#dc2626" },
   ],
   holdings: [
-    makeHolding("inst-usd-demo", "plat-demo", "type-liquid", 1000, [["fund-general", 100]], 250),
+    makeHolding("inst-spy", "plat-iol", "type-etf", 60, [["fund-retiro", 100]]),
+    makeHolding("inst-qqq", "plat-iol", "type-etf", 40, [["fund-retiro", 100]]),
+    makeHolding("inst-prmcapb", "plat-iol", "type-fci", 4000, [["fund-ahorros", 100]]),
+    makeHolding("inst-usdt", "plat-nexo", "type-crypto", 1000, [["fund-ahorros", 100]]),
+    makeHolding("inst-al30", "plat-bmb", "type-bono", 20, [["fund-inversiones", 100]]),
+    makeHolding("inst-brkb", "plat-bmb", "type-etf", 30, [["fund-inversiones", 100]]),
+    makeHolding("inst-btc", "plat-nexo", "type-crypto", 0.02, [["fund-inversiones", 100]]),
+    makeHolding("inst-cash-usd", "plat-sobre", "type-liquid", 4000, [["fund-emergencia", 100]]),
   ],
-  transactions: [],
+  transactions: [
+    {
+      id: "seed-tx-spy-1",
+      sourceKey: "seed|spy|2025-01-15|buy-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 1,
+      sourceAccount: "",
+      platformId: "plat-iol",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-01-15",
+      settlementDate: "2025-01-17",
+      kind: "BUY",
+      instrumentId: "inst-spy",
+      typeId: "type-etf",
+      symbol: "SPY",
+      quantity: 30,
+      price: 34.2,
+      amount: -1026,
+      currency: "DOLARES",
+      description: "Compra inicial de ETF global",
+      rawType: "Compra",
+      rawReference: "SEED-001",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-qqq-1",
+      sourceKey: "seed|qqq|2025-02-10|buy-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 2,
+      sourceAccount: "",
+      platformId: "plat-iol",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-02-10",
+      settlementDate: "2025-02-12",
+      kind: "BUY",
+      instrumentId: "inst-qqq",
+      typeId: "type-etf",
+      symbol: "QQQ",
+      quantity: 20,
+      price: 33.5,
+      amount: -670,
+      currency: "DOLARES",
+      description: "Compra inicial de tecnología",
+      rawType: "Compra",
+      rawReference: "SEED-002",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-prmcapb-1",
+      sourceKey: "seed|prmcapb|2025-02-20|buy-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 3,
+      sourceAccount: "",
+      platformId: "plat-iol",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-02-20",
+      settlementDate: "2025-02-20",
+      kind: "BUY",
+      instrumentId: "inst-prmcapb",
+      typeId: "type-fci",
+      symbol: "PRMCAPB",
+      quantity: 4000,
+      price: 135,
+      amount: -540000,
+      currency: "PESOS",
+      description: "Suscripción a fondo conservador en pesos",
+      rawType: "Suscripción FCI",
+      rawReference: "SEED-003",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-al30-1",
+      sourceKey: "seed|al30|2025-03-05|buy-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 4,
+      sourceAccount: "",
+      platformId: "plat-bmb",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-03-05",
+      settlementDate: "2025-03-07",
+      kind: "BUY",
+      instrumentId: "inst-al30",
+      typeId: "type-bono",
+      symbol: "AL30",
+      quantity: 20,
+      price: 58,
+      amount: -1160,
+      currency: "DOLARES",
+      description: "Compra de bono en dólares",
+      rawType: "Compra",
+      rawReference: "SEED-004",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-brkb-1",
+      sourceKey: "seed|brkb|2025-03-20|buy-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 5,
+      sourceAccount: "",
+      platformId: "plat-bmb",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-03-20",
+      settlementDate: "2025-03-22",
+      kind: "BUY",
+      instrumentId: "inst-brkb",
+      typeId: "type-etf",
+      symbol: "BRKB",
+      quantity: 30,
+      price: 20.5,
+      amount: -615,
+      currency: "DOLARES",
+      description: "Compra de activo defensivo",
+      rawType: "Compra",
+      rawReference: "SEED-005",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-spy-2",
+      sourceKey: "seed|spy|2025-06-12|buy-2",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 6,
+      sourceAccount: "",
+      platformId: "plat-iol",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-06-12",
+      settlementDate: "2025-06-14",
+      kind: "BUY",
+      instrumentId: "inst-spy",
+      typeId: "type-etf",
+      symbol: "SPY",
+      quantity: 30,
+      price: 36.8,
+      amount: -1104,
+      currency: "DOLARES",
+      description: "Segunda compra de ETF global",
+      rawType: "Compra",
+      rawReference: "SEED-006",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-qqq-2",
+      sourceKey: "seed|qqq|2025-07-18|buy-2",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 7,
+      sourceAccount: "",
+      platformId: "plat-iol",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-07-18",
+      settlementDate: "2025-07-20",
+      kind: "BUY",
+      instrumentId: "inst-qqq",
+      typeId: "type-etf",
+      symbol: "QQQ",
+      quantity: 20,
+      price: 31,
+      amount: -620,
+      currency: "DOLARES",
+      description: "Refuerzo de posición en tecnología",
+      rawType: "Compra",
+      rawReference: "SEED-007",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-btc-1",
+      sourceKey: "seed|btc|2025-08-08|buy-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 8,
+      sourceAccount: "",
+      platformId: "plat-nexo",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-08-08",
+      settlementDate: "2025-08-08",
+      kind: "BUY",
+      instrumentId: "inst-btc",
+      typeId: "type-crypto",
+      symbol: "BTC",
+      quantity: 0.02,
+      price: 62000,
+      amount: -1240,
+      currency: "DOLARES",
+      description: "Compra pequeña de bitcoin",
+      rawType: "Compra",
+      rawReference: "SEED-008",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-usdt-1",
+      sourceKey: "seed|usdt|2025-08-10|buy-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 9,
+      sourceAccount: "",
+      platformId: "plat-nexo",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2025-08-10",
+      settlementDate: "2025-08-10",
+      kind: "BUY",
+      instrumentId: "inst-usdt",
+      typeId: "type-crypto",
+      symbol: "USDT",
+      quantity: 1000,
+      price: 1,
+      amount: -1000,
+      currency: "DOLARES",
+      description: "Reserva en dólar digital",
+      rawType: "Compra",
+      rawReference: "SEED-009",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-al30-income",
+      sourceKey: "seed|al30|2026-01-09|income-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 10,
+      sourceAccount: "",
+      platformId: "plat-bmb",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2026-01-09",
+      settlementDate: "2026-01-09",
+      kind: "INCOME",
+      instrumentId: "inst-al30",
+      typeId: "type-bono",
+      symbol: "AL30",
+      quantity: 0,
+      price: 0,
+      amount: 32,
+      currency: "DOLARES",
+      description: "Cobro de renta del bono",
+      rawType: "Renta",
+      rawReference: "SEED-010",
+      usesNotionalQuantity: false,
+    },
+    {
+      id: "seed-tx-spy-dividend",
+      sourceKey: "seed|spy|2026-04-30|dividend-1",
+      sourceAdapter: "manual",
+      sourceFile: "",
+      sourceRow: 11,
+      sourceAccount: "",
+      platformId: "plat-iol",
+      fundId: "",
+      status: "REALIZADA",
+      tradeDate: "2026-04-30",
+      settlementDate: "2026-04-30",
+      kind: "DIVIDEND",
+      instrumentId: "inst-spy",
+      typeId: "type-etf",
+      symbol: "SPY",
+      quantity: 0,
+      price: 0,
+      amount: 18,
+      currency: "DOLARES",
+      description: "Dividendo del ETF global",
+      rawType: "Dividendo",
+      rawReference: "SEED-011",
+      usesNotionalQuantity: false,
+    },
+  ],
   inflation: {
     rates: seedInflationRates,
   },
@@ -225,6 +537,11 @@ const formatUsd = {
 
 const formatNumber = new Intl.NumberFormat("es-AR", {
   maximumFractionDigits: 6,
+});
+
+const formatTwoDecimals = new Intl.NumberFormat("es-AR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 const colors = ["#0f766e", "#c58b1a", "#2f5fb3", "#b83b5e", "#6f42c1", "#0d9488", "#d97706", "#475569", "#16a34a", "#be123c", "#2563eb", "#7c3aed"];
@@ -1272,7 +1589,7 @@ function renderReturns() {
     return;
   }
 
-    grid.innerHTML = groups
+  grid.innerHTML = groups
     .map((group, index) => `
       <article class="return-panel">
         <div class="return-panel-header">
@@ -1522,7 +1839,7 @@ function renderReturnsControls() {
   if (editFundsButton) {
     editFundsButton.classList.toggle("is-active", returnFundControlsVisible);
     editFundsButton.setAttribute("aria-pressed", String(returnFundControlsVisible));
-    editFundsButton.innerHTML = `<i data-lucide="${returnFundControlsVisible ? "eye-off" : "sliders-horizontal"}"></i>${returnFundControlsVisible ? "Ocultar controles" : "Editar fondos"}`;
+    editFundsButton.innerHTML = `<i data-lucide="${returnFundControlsVisible ? "eye-off" : "sliders-horizontal"}"></i>${returnFundControlsVisible ? "Ocultar controles" : "Reordenar fondos"}`;
   }
 }
 
@@ -2257,11 +2574,12 @@ function renderManualCotizationsTable() {
           <td>${escapeHtml(entry.currency || instrument?.currency || "DOLARES")}</td>
           <td>${formatNumber.format(entry.rates.length)}</td>
           <td>${escapeHtml(formatDisplayDate(latestRate?.date || ""))}</td>
-          <td>${escapeHtml(formatNumber.format(latestRate?.close || 0))}</td>
+          <td>${escapeHtml(formatTwoDecimals.format(latestRate?.close || 0))}</td>
           <td>${entry.sourceFile ? escapeHtml(entry.sourceFile) : '<span class="muted">Manual</span>'}</td>
           <td>
             <div class="actions">
               <button class="icon-button" type="button" title="Reemplazar cotizaciones" onclick="openCotizationsDialog('${instrumentId}')"><i data-lucide="refresh-cw"></i></button>
+              <button class="icon-button danger-button" type="button" title="Limpiar cotizaciones del instrumento" onclick="clearManualCotizations('${instrumentId}')"><i data-lucide="eraser"></i></button>
             </div>
           </td>
         </tr>
@@ -2281,7 +2599,7 @@ function renderInflationTable() {
   element.innerHTML = rows
     .map((row) => `
       <tr>
-        <td><strong>${escapeHtml(row.month)}</strong></td>
+        <td><strong>${escapeHtml(formatMonthYear(row.month))}</strong></td>
         <td>${formatNumber.format(row.usd)}</td>
         <td>${formatNumber.format(row.ars)}</td>
         <td>
@@ -3904,6 +4222,29 @@ async function clearAllManualCotizations() {
   render();
 }
 
+async function clearManualCotizations(instrumentId) {
+  const instrument = findById("instruments", instrumentId);
+  const confirmed = confirm(`¿Limpiar todas las cotizaciones cargadas para ${instrument?.name ?? "este instrumento"}?`);
+  if (!confirmed) return;
+
+  delete state.marketData.prices[instrumentId];
+  state.marketData.lastSyncAt = new Date().toISOString();
+  state.marketData.lastError = "";
+  state.instruments = state.instruments.map((item) => {
+    if (item.id !== instrumentId) return item;
+    return {
+      ...item,
+      quote: 1,
+      usesPlatformQuotes: false,
+      platformQuotes: {},
+    };
+  });
+
+  saveState();
+  await persistManualCotizationsToServer();
+  render();
+}
+
 function deleteEntity(kind, id) {
   if (isEntityInUse(kind, id)) {
     alert("No se puede eliminar porque está usado en una tenencia.");
@@ -5421,6 +5762,16 @@ function formatDisplayDate(value) {
   return year && month && day ? `${day}/${month}/${year}` : value;
 }
 
+function formatMonthYear(value) {
+  if (!value) return "-";
+  const [year, month] = String(value).split("-");
+  if (!year || !month) return value;
+  const date = new Date(`${year}-${month}-01T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  const formatted = new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric", timeZone: "UTC" }).format(date).replace(/\s+de\s+/i, " ");
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
 function formatMoneyByCurrency(value, currency) {
   if (String(currency ?? "").toUpperCase().includes("PESO")) {
     return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(value);
@@ -5467,3 +5818,4 @@ window.deleteIndicator = deleteIndicator;
 window.openCotizationsDialog = openCotizationsDialog;
 window.openInflationDialog = openInflationDialog;
 window.deleteInflationEntry = deleteInflationEntry;
+window.clearManualCotizations = clearManualCotizations;

@@ -5,21 +5,45 @@
       <h2>Rendimientos</h2>
     </div>
   </div>
-  <div class="returns-toolbar">
-    <label>
-      Tipo de instrumento
-      <select id="returnsTypeFilterInput"></select>
-    </label>
-    <label class="checkbox-label returns-inflation-toggle">
-      <input id="inflationAdjustmentInput" type="checkbox" />
-      Ajustar movimientos por inflación
-    </label>
-    <button class="secondary-button returns-edit-funds-button" id="toggleReturnFundControlsButton" type="button">
-      <i data-lucide="sliders-horizontal"></i>
-      Editar fondos
-    </button>
-  </div>
+  <section class="returns-filters-panel">
+    <div class="returns-filters-header">
+      <div>
+        <p class="eyebrow">Filtros</p>
+        <h3>Filtros</h3>
+      </div>
+      <button class="secondary-button returns-edit-funds-button" id="toggleReturnFundControlsButton" type="button">
+        <i data-lucide="sliders-horizontal"></i>
+        Reordenar fondos
+      </button>
+    </div>
+    <div class="returns-toolbar">
+      <label>
+        Tipo de instrumento
+        <select id="returnsTypeFilterInput"></select>
+      </label>
+      <label class="checkbox-label returns-inflation-toggle">
+        <input id="inflationAdjustmentInput" type="checkbox" />
+        Ajustar movimientos por inflación
+      </label>
+    </div>
+  </section>
   <div class="fund-returns-grid" id="fundReturnsGrid"></div>
-  <div class="fund-evolution-grid" id="fundEvolutionGrid"></div>
-  <div class="returns-grid" id="returnsGrid"></div>
+  <details class="returns-section" id="returnsEvolutionSection">
+    <summary>
+      <div>
+        <h3>Evolución de Tenencia</h3>
+        <p>Gráficos de evolución por fondo.</p>
+      </div>
+    </summary>
+    <div class="fund-evolution-grid" id="fundEvolutionGrid"></div>
+  </details>
+  <details class="returns-section" id="returnsInstrumentsSection">
+    <summary>
+      <div>
+        <h3>Rendimiento por Instrumento</h3>
+        <p>Gráficos y detalle por instrumento.</p>
+      </div>
+    </summary>
+    <div class="returns-grid" id="returnsGrid"></div>
+  </details>
 </section>

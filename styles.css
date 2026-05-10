@@ -630,16 +630,31 @@ textarea:focus {
   gap: 18px;
 }
 
+.returns-filters-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 16px;
+  padding: 14px;
+}
+
+.returns-filters-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.returns-filters-header h3 {
+  margin: 4px 0 0;
+}
+
 .returns-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  margin-bottom: 16px;
-  padding: 12px;
 }
 
 .returns-toolbar label {
@@ -657,6 +672,7 @@ textarea:focus {
 
 .returns-edit-funds-button {
   min-height: 42px;
+  margin-left: auto;
 }
 
 .returns-edit-funds-button.is-active {
@@ -667,7 +683,7 @@ textarea:focus {
 
 .fund-returns-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(312px, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -752,12 +768,59 @@ textarea:focus {
 }
 
 .fund-return-metrics {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   grid-column: 1 / -1;
-  gap: 8px 12px;
+  gap: 8px;
   border-top: 1px solid var(--line);
   padding-top: 10px;
+}
+
+.fund-return-metrics span {
+  display: block;
+}
+
+.returns-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.returns-section + .returns-section {
+  margin-top: 18px;
+}
+
+.returns-section summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.returns-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.returns-section summary h3 {
+  margin: 0;
+}
+
+.returns-section summary p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.returns-section[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.returns-section .returns-grid,
+.returns-section .fund-evolution-grid {
+  padding: 16px;
+  margin-bottom: 0;
 }
 
 .fund-evolution-grid {
@@ -1343,14 +1406,18 @@ tr:last-child td {
 }
 
 .color-field {
-  display: grid;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .preset-colors {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .preset-color-button {
@@ -1371,6 +1438,7 @@ tr:last-child td {
 .custom-color-row {
   display: grid;
   grid-template-columns: 64px auto;
+  flex: 0 0 auto;
   gap: 10px;
   align-items: center;
 }
@@ -1456,6 +1524,19 @@ tr:last-child td {
   .master-section-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .returns-filters-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .returns-edit-funds-button {
+    margin-left: 0;
+  }
+
+  .preset-colors {
+    flex-wrap: wrap;
   }
 }
 

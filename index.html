@@ -139,7 +139,7 @@
             <p class="eyebrow" id="entityDialogEyebrow">CRUD</p>
             <h2 id="entityDialogTitle">Nuevo registro</h2>
           </div>
-          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+          <button class="icon-button close-dialog" value="cancel" type="submit" formnovalidate title="Cerrar">
             <i data-lucide="x"></i>
           </button>
         </div>
@@ -154,7 +154,7 @@
             Descripción
             <textarea id="entityDescriptionInput" rows="3"></textarea>
           </label>
-          <label>
+          <label class="span-2">
             Color
             <div class="color-field">
               <div class="preset-colors" id="entityPresetColors"></div>
@@ -172,7 +172,7 @@
             </select>
           </label>
           <label class="quote-only">
-            Cotización
+            Cotización Actual
             <input id="entityQuoteInput" type="number" min="0" step="0.00000001" />
           </label>
           <label class="instrument-only checkbox-label span-2">
@@ -182,7 +182,7 @@
           <div class="platform-quotes-editor instrument-only span-2" id="platformQuotesEditor"></div>
         </div>
         <div class="modal-actions">
-          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Cancelar</button>
           <button class="primary-button" id="saveEntityButton" value="default" type="submit">Guardar</button>
         </div>
       </form>
@@ -195,7 +195,7 @@
             <p class="eyebrow">Tenencias</p>
             <h2 id="holdingDialogTitle">Nueva tenencia</h2>
           </div>
-          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+          <button class="icon-button close-dialog" value="cancel" type="submit" formnovalidate title="Cerrar">
             <i data-lucide="x"></i>
           </button>
         </div>
@@ -236,7 +236,7 @@
         </div>
         <div class="allocations-list" id="allocationsList"></div>
         <div class="modal-actions">
-          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Cancelar</button>
           <button class="primary-button" id="saveHoldingButton" value="default" type="submit">Guardar</button>
         </div>
       </form>
@@ -249,7 +249,7 @@
             <p class="eyebrow">Cotizaciones</p>
             <h2>Cargar cotizaciones</h2>
           </div>
-          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+          <button class="icon-button close-dialog" value="cancel" type="submit" formnovalidate title="Cerrar">
             <i data-lucide="x"></i>
           </button>
         </div>
@@ -272,7 +272,7 @@
         </div>
         <div class="quote-preview" id="cotizationsImportStatus">Seleccioná un instrumento, una moneda y un archivo Excel con las columnas Fecha Cotización y Cierre.</div>
         <div class="modal-actions">
-          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Cancelar</button>
           <button class="primary-button" id="saveCotizationsButton" value="default" type="submit">
             <i data-lucide="save"></i>
             Importar cotizaciones
@@ -288,7 +288,7 @@
             <p class="eyebrow">Inflación</p>
             <h2 id="inflationDialogTitle">Nuevo registro</h2>
           </div>
-          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+          <button class="icon-button close-dialog" value="cancel" type="submit" formnovalidate title="Cerrar">
             <i data-lucide="x"></i>
           </button>
         </div>
@@ -308,7 +308,7 @@
           </label>
         </div>
         <div class="modal-actions">
-          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Cancelar</button>
           <button class="primary-button" value="default" type="submit">Guardar</button>
         </div>
       </form>
@@ -321,7 +321,7 @@
             <p class="eyebrow">Inflación</p>
             <h2>Importar inflación</h2>
           </div>
-          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+          <button class="icon-button close-dialog" value="cancel" type="submit" formnovalidate title="Cerrar">
             <i data-lucide="x"></i>
           </button>
         </div>
@@ -333,7 +333,7 @@
         </div>
         <div class="quote-preview" id="inflationImportStatus">Cargá un archivo Excel con MonthYear, InflationDollar e InflationPesos.</div>
         <div class="modal-actions">
-          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Cancelar</button>
           <button class="primary-button" value="default" type="submit">Importar</button>
         </div>
       </form>
@@ -346,7 +346,7 @@
             <p class="eyebrow">KPIs</p>
             <h2 id="indicatorDialogTitle">Nuevo indicador</h2>
           </div>
-          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+          <button class="icon-button close-dialog" value="cancel" type="submit" formnovalidate title="Cerrar">
             <i data-lucide="x"></i>
           </button>
         </div>
@@ -366,7 +366,7 @@
           </label>
         </div>
         <div class="modal-actions">
-          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Cancelar</button>
           <button class="primary-button" id="saveIndicatorButton" value="default" type="submit">
             <i data-lucide="save"></i>
             Guardar
@@ -382,7 +382,7 @@
             <p class="eyebrow">Transacciones</p>
             <h2 id="transactionDialogTitle">Editar transacción</h2>
           </div>
-          <button class="icon-button close-dialog" value="cancel" type="submit" title="Cerrar">
+          <button class="icon-button close-dialog" value="cancel" type="submit" formnovalidate title="Cerrar">
             <i data-lucide="x"></i>
           </button>
         </div>
@@ -459,7 +459,7 @@
           </label>
         </div>
         <div class="modal-actions">
-          <button class="ghost-button" value="cancel" type="submit">Cancelar</button>
+          <button class="ghost-button" value="cancel" type="submit" formnovalidate>Cancelar</button>
           <button class="primary-button" id="saveTransactionButton" value="default" type="submit">
             <i data-lucide="save"></i>
             Guardar
